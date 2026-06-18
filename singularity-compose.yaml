@@ -1,0 +1,26 @@
+services:
+  - service_name: nginxd
+    description: Le service nginx nécessaire à la mise en ligne des applications web accessibles sur ce noeud.
+    user: root
+    group: root
+    volumes:
+      - /root/nginx/nginx.conf:/opt/nginx.conf
+      - /var/log
+      - /var/cache
+      - /home/charles/www
+    pidfile: /run/nginxd.pid
+    image: /root/nginx/nginx.sif
+    restart: always
+    after: NetworkManager
+    requires: NetworkManager
+  - service_name: bobyd
+    description: L'application web boby
+    user: boby
+    group: bioinfo
+    volumes:
+      - /OPT/boby/boby-static:/static
+      - /OPT/boby/boby-samplesheets:/samplesheets
+    pidfile: /run/bobyd.pid
+    image: /SINGULARITIES/boby-2.0.sif
+    after: NetworkManager SINGULARITIES.mount
+    requires: NetworkManager SINGULARITIES.mount

@@ -1,0 +1,17 @@
+# Fichier généré automatiquement par singularity-compose-rs, ne pas éditer manuellement!
+[Unit]
+Description={{ description }}
+Requires={{ requires }}
+After={{ after }}
+
+[Service]
+Type=forking
+Restart={{ restart }}
+User={{ user }}
+Group={{ group }}
+PIDFile={{ pidfile }}
+ExecStart=/usr/bin/singularity instance start --pid-file {{ pidfile }} {{ binds }} {{ image }} {{ service_name }}
+ExecStop=/usr/bin/singularity instance stop {{ service_name }}
+
+[Install]
+WantedBy=multi-user.target
