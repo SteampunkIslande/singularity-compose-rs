@@ -1,6 +1,6 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Service {
     pub service_name: String,
     pub description: String,
@@ -12,9 +12,10 @@ pub struct Service {
     pub restart: Option<String>,
     pub after: Option<String>,
     pub requires: Option<String>,
+    pub service_group: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Document {
     pub services: Vec<Service>,
 }

@@ -21,7 +21,7 @@ struct UnitFile {
     file_content: String,
 }
 
-const YAML_COMPOSE_FILE: &'static str = "/etc/singularity-compose.yaml";
+const YAML_COMPOSE_FILE: &'static str = "/etc/singularity-compose-rs/all-compose.yaml";
 
 fn compose_up(up_command: UpCommand, _jinja_env: Environment) -> anyhow::Result<()> {
     let definition_file = Path::new(YAML_COMPOSE_FILE);

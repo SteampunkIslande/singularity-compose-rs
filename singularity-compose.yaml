@@ -23,4 +23,4 @@ services:
     pidfile: /run/bobyd.pid
     image: /SINGULARITIES/boby-2.0.sif
     after: NetworkManager SINGULARITIES.mount
-    requires: NetworkManager SINGULARITIES.mount
+    requires: NetworkManager SINGULARITIES.mount nginxd.service
