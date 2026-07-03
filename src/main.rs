@@ -21,13 +21,13 @@ struct UnitFile {
     file_content: String,
 }
 
-const YAML_COMPOSE_FILE: &'static str = "/etc/singularity-compose-rs/all-compose.yaml";
+const YAML_COMPOSE_FILE: &str = "/etc/singularity-compose-rs/all-compose.yaml";
 
 fn compose_up(up_command: UpCommand, _jinja_env: Environment) -> anyhow::Result<()> {
     let definition_file = Path::new(YAML_COMPOSE_FILE);
 
     let doc: Document = yaml_serde::from_reader(
-        std::fs::File::open(&definition_file)
+        std::fs::File::open(definition_file)
             .context(format!("Cannot open `{}`", definition_file.display()))?,
     )?;
     let service_names: Vec<String> = doc
@@ -68,7 +68,7 @@ fn compose_build(build_command: BuildCommand, jinja_env: Environment) -> anyhow:
     let definition_file = Path::new(YAML_COMPOSE_FILE);
 
     let doc: Document = yaml_serde::from_reader(
-        std::fs::File::open(&definition_file)
+        std::fs::File::open(definition_file)
             .context(format!("Cannot open `{}`", definition_file.display()))?,
     )?;
     let mut unit_files: Vec<UnitFile> = Vec::new();
@@ -89,8 +89,8 @@ fn compose_build(build_command: BuildCommand, jinja_env: Environment) -> anyhow:
                 .render(context! {
                     service_name => service.service_name,
                     description => service.description,
-                    user => service.user.as_deref().unwrap_or("root".into()),
-                    group => service.group.as_deref().unwrap_or("root".into()),
+                    user => service.user.as_deref().unwrap_or("root"),
+                    group => service.group.as_deref().unwrap_or("root"),
                     binds => service.volumes.iter().map(|s|format!("-B {s}")).collect::<Vec<_>>().join(" "),
                     pidfile => service.pidfile.as_deref().unwrap_or(&format!("/run/{}.pid",service.service_name)),
                     image => service_image.display().to_string(),
@@ -125,7 +125,7 @@ fn compose_build(build_command: BuildCommand, jinja_env: Environment) -> anyhow:
 fn compose_down(down_command: DownCommand, _jinja_env: Environment) -> anyhow::Result<()> {
     let definition_file = Path::new(YAML_COMPOSE_FILE);
     let doc: Document = yaml_serde::from_reader(
-        std::fs::File::open(&definition_file).context("Cannot open `singularity-compose.yaml`")?,
+        std::fs::File::open(definition_file).context("Cannot open `singularity-compose.yaml`")?,
     )?;
     let service_names: Vec<String> = doc
         .services
