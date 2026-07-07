@@ -1,1 +1,1 @@
-target/release/singularity-compose-rs
+target/x86_64-unknown-linux-musl/release/singularity-compose-rs
