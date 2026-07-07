@@ -25,3 +25,26 @@ services:
     after: NetworkManager SINGULARITIES.mount
     requires: NetworkManager SINGULARITIES.mount nginxd.service
     service_group: web.optional
+  - service_name: boby2d
+    description: L'application web boby (2)
+    user: boby
+    group: bioinfo
+    volumes:
+      - /OPT/boby/boby-static:/static
+      - /OPT/boby/boby-samplesheets:/samplesheets
+    pidfile: /run/bobyd.pid
+    image: /SINGULARITIES/boby-2.0.sif
+    after: NetworkManager SINGULARITIES.mount
+    requires: NetworkManager SINGULARITIES.mount nginxd.service
+    service_group: web
+  - service_name: none
+    description: L'application web boby (2)
+    user: boby
+    group: bioinfo
+    volumes:
+      - /OPT/boby/boby-static:/static
+      - /OPT/boby/boby-samplesheets:/samplesheets
+    pidfile: /run/bobyd.pid
+    image: /SINGULARITIES/boby-2.0.sif
+    after: NetworkManager SINGULARITIES.mount
+    requires: NetworkManager SINGULARITIES.mount nginxd.service

@@ -171,8 +171,97 @@ fn compose_down(down_command: DownCommand, _jinja_env: Environment) -> anyhow::R
 }
 
 fn compose_list(list_command: ListCommand, _jinja_env: Environment) -> anyhow::Result<()> {
-    // Shows a tree with every service defined in /etc/singularity-compose-rs/compose.yaml
-    // The root element is called `all services`, and each child node is either a service group name, or a service name (if not part of a group)
+    let definition_file = Path::new(YAML_COMPOSE_FILE);
+    let doc: Document = datatypes::Document::try_from_file_path(definition_file)?;
+
+    let services = doc.services_for_groups(&list_command.groups);
+    if services.is_empty() {
+        println!("No services found.");
+        return Ok(());
+    }
+
+    #[derive(Debug, Clone)]
+    struct GroupTreeNode {
+        sub_groups: std::collections::BTreeMap<String, GroupTreeNode>,
+        services: Vec<String>,
+    }
+
+    impl GroupTreeNode {
+        fn new() -> Self {
+            Self {
+                sub_groups: std::collections::BTreeMap::new(),
+                services: Vec::new(),
+            }
+        }
+    }
+
+    fn insert_service(tree: &mut GroupTreeNode, parts: &[&str], service_name: String) {
+        if parts.is_empty() {
+            return;
+        }
+        // Cannot panic since if parts is empty, below code is unreachable
+        let (first, rest) = parts.split_at(1);
+        let entry = tree
+            .sub_groups
+            .entry(first[0].to_string())
+            .or_insert_with(GroupTreeNode::new);
+        if rest.is_empty() {
+            entry.services.push(service_name);
+        } else {
+            insert_service(entry, rest, service_name);
+        }
+    }
+
+    fn build_treenodes(tree: &GroupTreeNode) -> Vec<text_trees::StringTreeNode> {
+        let mut nodes = Vec::new();
+        for (name, node) in &tree.sub_groups {
+            let mut children: Vec<text_trees::StringTreeNode> = Vec::new();
+            for svc in &node.services {
+                children.push(text_trees::StringTreeNode::new(svc.clone()));
+            }
+            for child in build_treenodes(node) {
+                children.push(child);
+            }
+            children.sort_by(|a, b| a.label().cmp(&b.label()));
+            nodes.push(text_trees::StringTreeNode::with_child_nodes(
+                name.clone(),
+                children.into_iter(),
+            ));
+        }
+        nodes
+    }
+
+    let mut groups_tree = GroupTreeNode::new();
+    let mut no_group_services: Vec<String> = Vec::new();
+
+    for service in services {
+        if let Some(group) = &service.service_group {
+            let parts: Vec<&str> = group.split('.').collect();
+            insert_service(&mut groups_tree, &parts, service.service_name.clone());
+        } else {
+            no_group_services.push(service.service_name.clone());
+        }
+    }
+
+    let mut all_children: Vec<text_trees::StringTreeNode> = Vec::new();
+    for node in build_treenodes(&groups_tree) {
+        all_children.push(node);
+    }
+    for svc in no_group_services {
+        all_children.push(text_trees::StringTreeNode::new(svc));
+    }
+    all_children.sort_by(|a, b| a.label().cmp(&b.label()));
+
+    let root = text_trees::StringTreeNode::with_child_nodes(
+        "all services".to_string(),
+        all_children.into_iter(),
+    );
+
+    let output = root.to_string_with_format(&text_trees::TreeFormatting::dir_tree(
+        text_trees::FormatCharacters::box_chars(),
+    ))?;
+    println!("{}", output);
+
     Ok(())
 }
 
