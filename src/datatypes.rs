@@ -8,7 +8,7 @@ use crate::error::SingularityComposeError;
 #[derive(Debug, Deserialize, Serialize, PartialEq, Clone)]
 pub struct Service {
     pub service_name: String,
-    pub description: String,
+    pub description: Option<String>,
     pub user: Option<String>,
     pub group: Option<String>,
     pub volumes: Vec<String>,
@@ -76,7 +76,11 @@ impl Document {
                     "Service name cannot contain line breaks".to_string()
                 ));
             }
-            if service.description.as_str().contains("\n") {
+            if service
+                .description
+                .as_ref()
+                .is_some_and(|s| s.contains("\n"))
+            {
                 bail!(SingularityComposeError::InvalidField(
                     "Description cannot contain line breaks".to_string()
                 ));
