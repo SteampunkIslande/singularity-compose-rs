@@ -17,6 +17,7 @@ pub mod error;
 
 use cli::*;
 use datatypes::*;
+use error::SingularityComposeError;
 
 struct UnitFile {
     file_name: PathBuf,
@@ -80,13 +81,13 @@ fn compose_up(up_command: UpCommand, _jinja_env: Environment) -> anyhow::Result<
     Ok(())
 }
 
-//systemctl stop $service && systemctl disable $service && rm /etc/systemd/system/$service
-fn compose_build(build_command: BuildCommand, jinja_env: Environment) -> anyhow::Result<()> {
-    let definition_file = Path::new(YAML_COMPOSE_FILE);
-    let doc: Document = datatypes::Document::try_from_file_path(definition_file)?;
-
+fn unit_files_from_services(
+    services: &[Service],
+    jinja_env: Environment,
+    dry_run: bool,
+) -> anyhow::Result<()> {
     let mut unit_files: Vec<UnitFile> = Vec::new();
-    for service in doc.services_for_groups(&build_command.groups).iter() {
+    for service in services {
         let service_image = PathBuf::from_str(&service.image)?;
         if !service_image.exists() {
             bail!(
@@ -121,7 +122,7 @@ fn compose_build(build_command: BuildCommand, jinja_env: Environment) -> anyhow:
             file_content: unit_file_content,
         });
     }
-    if build_command.dry_run {
+    if dry_run {
         eprintln!("Below is what the generated unit files would look like.");
         for unit_file in unit_files.iter() {
             eprintln!(
@@ -137,6 +138,14 @@ fn compose_build(build_command: BuildCommand, jinja_env: Environment) -> anyhow:
             eprintln!("Wrote file `{}`", unit_file.file_name.display());
         }
     }
+    Ok(())
+}
+
+fn compose_build(build_command: BuildCommand, jinja_env: Environment) -> anyhow::Result<()> {
+    let definition_file = Path::new(YAML_COMPOSE_FILE);
+    let doc: Document = datatypes::Document::try_from_file_path(definition_file)?;
+    unit_files_from_services(&doc.services, jinja_env, build_command.dry_run)?;
+
     Ok(())
 }
 
@@ -265,6 +274,112 @@ fn compose_list(list_command: ListCommand, _jinja_env: Environment) -> anyhow::R
     Ok(())
 }
 
+fn compose_add(add_command: AddCommand, _jinja_env: Environment) -> anyhow::Result<()> {
+    let definition_file = Path::new(YAML_COMPOSE_FILE);
+    let doc = Document::try_from_file_path(definition_file)?;
+    let input_doc = Document::try_from_file_path(&add_command.file)?;
+
+    let MergeResult {
+        unchanged,
+        added,
+        overwritten,
+    } = doc.merge_document(input_doc);
+
+    for service in &overwritten {
+        eprintln!("Overwriting existing service: `{}`", service.service_name);
+    }
+
+    let mut all_service_names = std::collections::HashSet::new();
+    for service in unchanged
+        .iter()
+        .chain(added.iter())
+        .chain(overwritten.iter())
+    {
+        if !all_service_names.insert(&service.service_name) {
+            bail!(SingularityComposeError::DuplicateService(
+                service.service_name.clone()
+            ));
+        }
+    }
+    // There's no reason to keep all the service names
+    drop(all_service_names);
+
+    let file = File::create(definition_file)?;
+
+    // Save to file
+    yaml_serde::to_writer(
+        file,
+        &Document::from(MergeResult {
+            unchanged: unchanged.clone(),
+            added: added.clone(),
+            overwritten: overwritten.clone(),
+        }),
+    )?;
+
+    if !overwritten.is_empty() {
+        eprintln!(
+            "Warning: The following services were re-defined and they will be stopped, disabled, and their unit files will be removed:"
+        );
+        for service in overwritten.iter() {
+            let unit_file_name = format!("scompose-{}.service", service.service_name);
+            let unit_file_path = Path::new("/etc/systemd/system").join(&unit_file_name);
+            eprintln!("  - {}", service.service_name);
+
+            let status = std::process::Command::new("systemctl")
+                .arg("stop")
+                .arg(&unit_file_name)
+                .status()?;
+            match status.code() {
+                Some(code) if !status.success() => eprintln!(
+                    "Warning: `systemctl stop {}` exited with status code: {}",
+                    unit_file_name, code
+                ),
+                None => eprintln!(
+                    "Warning: `systemctl stop {}` terminated by signal",
+                    unit_file_name
+                ),
+                _ => {}
+            }
+
+            let status = std::process::Command::new("systemctl")
+                .arg("disable")
+                .arg(&unit_file_name)
+                .status()?;
+            match status.code() {
+                Some(code) if !status.success() => eprintln!(
+                    "Warning: `systemctl disable {}` exited with status code: {}",
+                    unit_file_name, code
+                ),
+                None => eprintln!(
+                    "Warning: `systemctl disable {}` terminated by signal",
+                    unit_file_name
+                ),
+                _ => {}
+            }
+
+            if unit_file_path.exists() {
+                std::fs::remove_file(&unit_file_path)?;
+                eprintln!("Removed unit file: {}", unit_file_path.display());
+            }
+        }
+        eprintln!("Now, these re-defined services will be added along with the newly added ones.");
+        unit_files_from_services(
+            &[overwritten.as_slice(), added.as_slice()].concat(),
+            _jinja_env,
+            false,
+        )?;
+    }
+
+    eprintln!(
+        "Successfully merged compose file. {} service(s) added, {} overwritten, {} left unchanged.",
+        added.len(),
+        overwritten.len(),
+        unchanged.len()
+    );
+
+    Ok(())
+}
+
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
@@ -287,6 +402,9 @@ fn main() -> anyhow::Result<()> {
         }
         ComposeSubcommand::Build(build_command) => {
             compose_build(build_command, jinja_env)?;
+        }
+        ComposeSubcommand::Add(add_command) => {
+            compose_add(add_command, jinja_env)?;
         }
     }
     Ok(())

@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::SingularityComposeError;
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, PartialEq, Clone)]
 pub struct Service {
     pub service_name: String,
     pub description: String,
@@ -23,6 +23,12 @@ pub struct Service {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Document {
     pub services: Vec<Service>,
+}
+
+pub struct MergeResult {
+    pub unchanged: Vec<Service>,
+    pub added: Vec<Service>,
+    pub overwritten: Vec<Service>,
 }
 
 impl Document {
@@ -148,5 +154,46 @@ impl Document {
             }
         }
         Ok(doc)
+    }
+
+    /// Merge another document into this one.
+    ///
+    /// For each service in `other` that already exists in `self`, the existing service is
+    /// overwritten and its name is added to the returned list. For new services, they are
+    /// simply appended. After merging, the caller is responsible for ensuring there are no
+    /// duplicate service names in the resulting document.
+    pub fn merge_document(self, other: Document) -> MergeResult {
+        let mut unchanged = self.services;
+        let mut overwritten = Vec::new();
+        let mut added = Vec::new();
+
+        for service in other.services.into_iter() {
+            if let Some(pos) = unchanged
+                .iter_mut()
+                .position(|s| s.service_name == service.service_name)
+            {
+                if unchanged[pos] != service {
+                    // Add to overwritten, remove from unchanged
+                    overwritten.push(service);
+                    unchanged.remove(pos);
+                }
+            } else {
+                // This is a new service name
+                added.push(service);
+            }
+        }
+        MergeResult {
+            unchanged: unchanged,
+            added: added,
+            overwritten: overwritten,
+        }
+    }
+}
+
+impl From<MergeResult> for Document {
+    fn from(value: MergeResult) -> Self {
+        Document {
+            services: [value.unchanged, value.added, value.overwritten].concat(),
+        }
     }
 }
