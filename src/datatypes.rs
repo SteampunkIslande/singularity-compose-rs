@@ -115,8 +115,8 @@ impl Document {
                     "Singularity image file cannot contain line breaks".to_string()
                 ));
             }
-            if let Some(restart) = service.restart.as_ref() {
-                if ![
+            if let Some(restart) = service.restart.as_ref()
+                && ![
                     "no",
                     "always",
                     "on-success",
@@ -132,7 +132,6 @@ impl Document {
                         restart
                     )));
                 }
-            }
             if service.after.as_ref().is_some_and(|p| p.contains("\n")) {
                 bail!(SingularityComposeError::InvalidField(
                     "After dependencies cannot contain line breaks".to_string()
@@ -183,9 +182,9 @@ impl Document {
             }
         }
         MergeResult {
-            unchanged: unchanged,
-            added: added,
-            overwritten: overwritten,
+            unchanged,
+            added,
+            overwritten,
         }
     }
 }

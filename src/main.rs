@@ -231,7 +231,7 @@ fn compose_list(list_command: ListCommand, _jinja_env: Environment) -> anyhow::R
             for child in build_treenodes(node) {
                 children.push(child);
             }
-            children.sort_by(|a, b| a.label().cmp(&b.label()));
+            children.sort_by_key(|a| a.label());
             nodes.push(text_trees::StringTreeNode::with_child_nodes(
                 name.clone(),
                 children.into_iter(),
@@ -259,7 +259,7 @@ fn compose_list(list_command: ListCommand, _jinja_env: Environment) -> anyhow::R
     for svc in no_group_services {
         all_children.push(text_trees::StringTreeNode::new(svc));
     }
-    all_children.sort_by(|a, b| a.label().cmp(&b.label()));
+    all_children.sort_by_key(|a| a.label());
 
     let root = text_trees::StringTreeNode::with_child_nodes(
         "all services".to_string(),
