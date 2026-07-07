@@ -40,9 +40,9 @@ impl Document {
     /// while requesting `web.optional` matches only that group.
     ///
     /// When `groups` is empty, all services are returned (default behaviour).
-    pub fn services_for_groups<'a>(&'a self, groups: &[String]) -> Vec<&'a Service> {
+    pub fn services_for_groups(&self, groups: &[String]) -> Vec<Service> {
         if groups.is_empty() {
-            return self.services.iter().collect();
+            return self.services.iter().cloned().collect();
         }
         self.services
             .iter()
@@ -54,6 +54,7 @@ impl Document {
                     })
                 })
             })
+            .cloned()
             .collect()
     }
 
@@ -126,12 +127,12 @@ impl Document {
                     "on-watchdog",
                 ]
                 .contains(&restart.as_str())
-                {
-                    bail!(SingularityComposeError::InvalidField(format!(
-                        "If you specify a restart condition, it should be one of: `no`, `always`,`on-success`,`on-failure`,`on-abnormal`,`on-abort`, or `on-watchdog`; found `{}`",
-                        restart
-                    )));
-                }
+            {
+                bail!(SingularityComposeError::InvalidField(format!(
+                    "If you specify a restart condition, it should be one of: `no`, `always`,`on-success`,`on-failure`,`on-abnormal`,`on-abort`, or `on-watchdog`; found `{}`",
+                    restart
+                )));
+            }
             if service.after.as_ref().is_some_and(|p| p.contains("\n")) {
                 bail!(SingularityComposeError::InvalidField(
                     "After dependencies cannot contain line breaks".to_string()

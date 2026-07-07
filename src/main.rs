@@ -17,7 +17,6 @@ pub mod error;
 
 use cli::*;
 use datatypes::*;
-use error::SingularityComposeError;
 
 struct UnitFile {
     file_name: PathBuf,
@@ -71,10 +70,11 @@ fn compose_up(up_command: UpCommand, _jinja_env: Environment) -> anyhow::Result<
             .args(&service_names)
             .status()?;
         match status.code() {
-            Some(code) => eprintln!(
+            Some(code) if !status.success() => eprintln!(
                 "Process `systemctl enable {}` exited with status code: {code}",
                 service_names.join(" ")
             ),
+            Some(_) => eprintln!("Successfully enabled services."),
             None => eprintln!("Process terminated by signal"),
         }
     }
@@ -144,7 +144,11 @@ fn unit_files_from_services(
 fn compose_build(build_command: BuildCommand, jinja_env: Environment) -> anyhow::Result<()> {
     let definition_file = Path::new(YAML_COMPOSE_FILE);
     let doc: Document = datatypes::Document::try_from_file_path(definition_file)?;
-    unit_files_from_services(&doc.services, jinja_env, build_command.dry_run)?;
+    unit_files_from_services(
+        doc.services_for_groups(&build_command.groups).as_slice(),
+        jinja_env,
+        build_command.dry_run,
+    )?;
 
     Ok(())
 }
@@ -169,10 +173,11 @@ fn compose_down(down_command: DownCommand, _jinja_env: Environment) -> anyhow::R
             .args(&service_names)
             .status()?;
         match status.code() {
-            Some(code) => eprintln!(
+            Some(code) if !status.success() => eprintln!(
                 "Process `systemctl stop {}` exited with status code: {code}",
                 service_names.join(" ")
             ),
+            Some(_) => eprintln!("Successfully stopped services."),
             None => eprintln!("Process terminated by signal"),
         }
     }
@@ -286,23 +291,11 @@ fn compose_add(add_command: AddCommand, _jinja_env: Environment) -> anyhow::Resu
     } = doc.merge_document(input_doc);
 
     for service in &overwritten {
-        eprintln!("Overwriting existing service: `{}`", service.service_name);
+        eprintln!(
+            "Overwriting existing service since definition changed: `{}`",
+            service.service_name
+        );
     }
-
-    let mut all_service_names = std::collections::HashSet::new();
-    for service in unchanged
-        .iter()
-        .chain(added.iter())
-        .chain(overwritten.iter())
-    {
-        if !all_service_names.insert(&service.service_name) {
-            bail!(SingularityComposeError::DuplicateService(
-                service.service_name.clone()
-            ));
-        }
-    }
-    // There's no reason to keep all the service names
-    drop(all_service_names);
 
     let file = File::create(definition_file)?;
 
@@ -318,7 +311,7 @@ fn compose_add(add_command: AddCommand, _jinja_env: Environment) -> anyhow::Resu
 
     if !overwritten.is_empty() {
         eprintln!(
-            "Warning: The following services were re-defined and they will be stopped, disabled, and their unit files will be removed:"
+            "Warning: The following services' definitions changed and they will be stopped, disabled, and their unit files will be removed:"
         );
         for service in overwritten.iter() {
             let unit_file_name = format!("scompose-{}.service", service.service_name);
@@ -380,6 +373,26 @@ fn compose_add(add_command: AddCommand, _jinja_env: Environment) -> anyhow::Resu
     Ok(())
 }
 
+fn daemon_reload() -> anyhow::Result<()> {
+    let status = std::process::Command::new("systemctl")
+        .arg("daemon-reload")
+        .status()?;
+    if let Some(code) = status.code() {
+        if !status.success() {
+            bail!(
+                "Command `systemctl daemon-reload` exited with status {}",
+                code
+            );
+        }
+    } else {
+        bail!(
+            "Command `systemctl daemon-reload` was interrupted by signal {}",
+            status.signal().unwrap_or(-1)
+        );
+    }
+    Ok(())
+}
+
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
@@ -402,9 +415,11 @@ fn main() -> anyhow::Result<()> {
         }
         ComposeSubcommand::Build(build_command) => {
             compose_build(build_command, jinja_env)?;
+            daemon_reload()?;
         }
         ComposeSubcommand::Add(add_command) => {
             compose_add(add_command, jinja_env)?;
+            daemon_reload()?;
         }
     }
     Ok(())
