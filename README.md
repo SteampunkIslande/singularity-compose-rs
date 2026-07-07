@@ -1,3 +1,8 @@
+# Disclaimer
+
+This project is still in development, not for use in production environment!
+I (the author) is not accountable for anything that might go wrong!
+
 # What is singularity-compose-rs ?
 
 `singularity-compose-rs` is a simple CLI tool designed to bring some of the benefits of using `docker-compose` to singularity.
