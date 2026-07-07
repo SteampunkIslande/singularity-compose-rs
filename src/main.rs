@@ -25,7 +25,13 @@ struct UnitFile {
     file_content: String,
 }
 
+const YAML_COMPOSE_DIR: &str = "/etc/singularity-compose-rs";
 const YAML_COMPOSE_FILE: &str = "/etc/singularity-compose-rs/compose.yaml";
+
+fn ensure_etc_exists() -> anyhow::Result<()> {
+    std::fs::create_dir_all(Path::new(YAML_COMPOSE_DIR))?;
+    Ok(())
+}
 
 fn compose_up(up_command: UpCommand, _jinja_env: Environment) -> anyhow::Result<()> {
     let definition_file = Path::new(YAML_COMPOSE_FILE);
@@ -188,7 +194,11 @@ fn compose_down(down_command: DownCommand, _jinja_env: Environment) -> anyhow::R
 
 fn compose_list(list_command: ListCommand, _jinja_env: Environment) -> anyhow::Result<()> {
     let definition_file = Path::new(YAML_COMPOSE_FILE);
-    let doc: Document = datatypes::Document::try_from_file_path(definition_file)?;
+    let doc: Document = if !definition_file.exists() {
+        Document::default()
+    } else {
+        Document::try_from_file_path(definition_file)?
+    };
 
     let services = doc.services_for_groups(&list_command.groups);
     if services.is_empty() {
@@ -283,7 +293,15 @@ fn compose_list(list_command: ListCommand, _jinja_env: Environment) -> anyhow::R
 
 fn compose_add(add_command: AddCommand, _jinja_env: Environment) -> anyhow::Result<()> {
     let definition_file = Path::new(YAML_COMPOSE_FILE);
-    let doc = Document::try_from_file_path(definition_file)?;
+    // Create dir if it doesn't exist yet
+    ensure_etc_exists()?;
+    let doc = if !definition_file.exists() {
+        // For the add command, this makes sense: if file `/etc/singularity-compose-rs/compose.yaml` doesn't exist yet,
+        // this is exactly why this function is run.
+        Document::default()
+    } else {
+        Document::try_from_file_path(definition_file)?
+    };
     let input_doc = Document::try_from_file_path(&add_command.file)?;
 
     let MergeResult {

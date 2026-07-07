@@ -20,7 +20,7 @@ pub struct Service {
     pub service_group: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Default)]
 pub struct Document {
     pub services: Vec<Service>,
 }
