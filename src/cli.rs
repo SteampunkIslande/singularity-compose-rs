@@ -11,6 +11,12 @@ pub enum ComposeSubcommand {
 pub struct BuildCommand {
     #[arg(long = "dry-run", short = 'n')]
     pub dry_run: bool,
+
+    /// Groups you want to (re)-build (comma-separated)
+    ///
+    /// Note that you can express a group hierarchy with `.`
+    #[arg(long = "groups", short = 'g', value_parser, num_args = 0.., value_delimiter = ',')]
+    pub groups: Vec<String>,
 }
 
 #[derive(clap::Parser, Debug, Clone)]

@@ -26,6 +26,31 @@ pub struct Document {
 }
 
 impl Document {
+    /// Returns the services whose `service_group` matches any of the requested groups.
+    ///
+    /// Groups support a hierarchy expressed with `.`. A requested group `g` matches a
+    /// service group `s` when `s == g` or `s` is a descendant of `g` (i.e. `s` starts with
+    /// `g.`). For example, requesting `web` matches both `web.essential` and `web.optional`,
+    /// while requesting `web.optional` matches only that group.
+    ///
+    /// When `groups` is empty, all services are returned (default behaviour).
+    pub fn services_for_groups<'a>(&'a self, groups: &[String]) -> Vec<&'a Service> {
+        if groups.is_empty() {
+            return self.services.iter().collect();
+        }
+        self.services
+            .iter()
+            .filter(|service| {
+                service.service_group.as_ref().is_some_and(|service_group| {
+                    groups.iter().any(|requested| {
+                        *requested == *service_group
+                            || service_group.starts_with(&format!("{requested}."))
+                    })
+                })
+            })
+            .collect()
+    }
+
     pub fn try_from_file_path<T: AsRef<Path>>(file_path: T) -> anyhow::Result<Self> {
         let doc: Document = yaml_serde::from_reader(
             std::fs::File::open(file_path.as_ref())

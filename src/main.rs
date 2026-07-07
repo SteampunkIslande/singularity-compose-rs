@@ -29,8 +29,8 @@ fn compose_up(up_command: UpCommand, _jinja_env: Environment) -> anyhow::Result<
     let definition_file = Path::new(YAML_COMPOSE_FILE);
     let doc: Document = datatypes::Document::try_from_file_path(definition_file)?;
 
-    let service_names: Vec<String> = doc
-        .services
+    let services = doc.services_for_groups(&up_command.groups);
+    let service_names: Vec<String> = services
         .iter()
         .map(|s| format!("scompose-{}.service", s.service_name))
         .collect();
@@ -43,9 +43,9 @@ fn compose_up(up_command: UpCommand, _jinja_env: Environment) -> anyhow::Result<
         {
             bail!(
                 "Cannot activate required services:\n{}\nSome files are missing. Please run `singularity-compose-rs build` to update service files.",
-                doc.services
+                services
                     .iter()
-                    .map(|s| format!("- ̀{}`", s.service_name.as_str()))
+                    .map(|s| format!("- `{}`", s.service_name.as_str()))
                     .collect::<Vec<_>>()
                     .join("\n")
             );
@@ -85,14 +85,17 @@ fn compose_build(build_command: BuildCommand, jinja_env: Environment) -> anyhow:
     let doc: Document = datatypes::Document::try_from_file_path(definition_file)?;
 
     let mut unit_files: Vec<UnitFile> = Vec::new();
-    for service in doc.services.iter() {
+    for service in doc.services_for_groups(&build_command.groups).iter() {
         let service_image = PathBuf::from_str(&service.image)?;
         if !service_image.exists() {
-            bail!("Singularity image `{}` does not exist!", service.image);
+            bail!(
+                "Singularity image `{}` does not exist! No unit files written.",
+                service.image
+            );
         }
         if !service_image.is_absolute() {
             bail!(
-                "Singularity image path should be absolute (found `{}`)",
+                "Singularity image path should be absolute (found `{}`) No unit files written.",
                 service.image
             );
         }
@@ -130,17 +133,19 @@ fn compose_build(build_command: BuildCommand, jinja_env: Environment) -> anyhow:
         for unit_file in unit_files {
             eprintln!("Writing file `{}` ", unit_file.file_name.display());
             File::create(&unit_file.file_name)?.write_all(unit_file.file_content.as_bytes())?;
+            eprintln!("Wrote file `{}`", unit_file.file_name.display());
         }
     }
     Ok(())
 }
 
+//systemctl stop $service && systemctl disable $service && rm /etc/systemd/system/$service
 fn compose_down(down_command: DownCommand, _jinja_env: Environment) -> anyhow::Result<()> {
     let definition_file = Path::new(YAML_COMPOSE_FILE);
     let doc: Document = datatypes::Document::try_from_file_path(definition_file)?;
 
-    let service_names: Vec<String> = doc
-        .services
+    let services = doc.services_for_groups(&down_command.groups);
+    let service_names: Vec<String> = services
         .iter()
         .map(|s| format!("scompose-{}.service", s.service_name))
         .collect();
