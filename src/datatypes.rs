@@ -42,7 +42,7 @@ impl Document {
     /// When `groups` is empty, all services are returned (default behaviour).
     pub fn services_for_groups(&self, groups: &[String]) -> Vec<Service> {
         if groups.is_empty() {
-            return self.services.iter().cloned().collect();
+            return self.services.to_vec();
         }
         self.services
             .iter()
