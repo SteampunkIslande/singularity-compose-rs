@@ -1,17 +1,19 @@
 use std::{
     fs::File,
     io::Write,
+    os::unix::process::ExitStatusExt,
     path::{Path, PathBuf},
     str::FromStr,
 };
 
-use anyhow::{Context, bail};
+use anyhow::bail;
 use clap::Parser;
 
 use minijinja::{Environment, context};
 
 pub mod cli;
 pub mod datatypes;
+pub mod error;
 
 use cli::*;
 use datatypes::*;
@@ -25,11 +27,8 @@ const YAML_COMPOSE_FILE: &str = "/etc/singularity-compose-rs/all-compose.yaml";
 
 fn compose_up(up_command: UpCommand, _jinja_env: Environment) -> anyhow::Result<()> {
     let definition_file = Path::new(YAML_COMPOSE_FILE);
+    let doc: Document = datatypes::Document::try_from_file_path(definition_file)?;
 
-    let doc: Document = yaml_serde::from_reader(
-        std::fs::File::open(definition_file)
-            .context(format!("Cannot open `{}`", definition_file.display()))?,
-    )?;
     let service_names: Vec<String> = doc
         .services
         .iter()
@@ -38,16 +37,33 @@ fn compose_up(up_command: UpCommand, _jinja_env: Environment) -> anyhow::Result<
     if up_command.dry_run {
         eprintln!("Below is the command that would be run.");
     } else {
+        if !service_names
+            .iter()
+            .all(|service_name| Path::new("/etc/systemd/system").join(service_name).exists())
+        {
+            bail!(
+                "Cannot activate required services:\n{}\nSome files are missing. Please run `singularity-compose-rs build` to update service files.",
+                doc.services
+                    .iter()
+                    .map(|s| format!("- ̀{}`", s.service_name.as_str()))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            );
+        }
         let status = std::process::Command::new("systemctl")
             .arg("start")
             .args(&service_names)
             .status()?;
         match status.code() {
-            Some(code) => eprintln!(
+            Some(code) if !status.success() => eprintln!(
                 "Process `systemctl start {}` exited with status code: {code}",
                 service_names.join(" ")
             ),
-            None => eprintln!("Process terminated by signal"),
+            Some(_) => eprintln!("Successfully activated services."),
+            None => eprintln!(
+                "Process terminated by signal {}.",
+                status.signal().unwrap_or(-1)
+            ),
         }
         let status = std::process::Command::new("systemctl")
             .arg("enable")
@@ -66,11 +82,8 @@ fn compose_up(up_command: UpCommand, _jinja_env: Environment) -> anyhow::Result<
 
 fn compose_build(build_command: BuildCommand, jinja_env: Environment) -> anyhow::Result<()> {
     let definition_file = Path::new(YAML_COMPOSE_FILE);
+    let doc: Document = datatypes::Document::try_from_file_path(definition_file)?;
 
-    let doc: Document = yaml_serde::from_reader(
-        std::fs::File::open(definition_file)
-            .context(format!("Cannot open `{}`", definition_file.display()))?,
-    )?;
     let mut unit_files: Vec<UnitFile> = Vec::new();
     for service in doc.services.iter() {
         let service_image = PathBuf::from_str(&service.image)?;
@@ -99,7 +112,7 @@ fn compose_build(build_command: BuildCommand, jinja_env: Environment) -> anyhow:
                     requires => service.requires.as_deref().unwrap_or("network-online.target"),
                 })?;
         unit_files.push(UnitFile {
-            file_name: PathBuf::from_str("/etc/systemd/system")?
+            file_name: Path::new("/etc/systemd/system")
                 .join(format!("scompose-{}.service", service.service_name)),
             file_content: unit_file_content,
         });
@@ -124,9 +137,8 @@ fn compose_build(build_command: BuildCommand, jinja_env: Environment) -> anyhow:
 
 fn compose_down(down_command: DownCommand, _jinja_env: Environment) -> anyhow::Result<()> {
     let definition_file = Path::new(YAML_COMPOSE_FILE);
-    let doc: Document = yaml_serde::from_reader(
-        std::fs::File::open(definition_file).context("Cannot open `singularity-compose.yaml`")?,
-    )?;
+    let doc: Document = datatypes::Document::try_from_file_path(definition_file)?;
+
     let service_names: Vec<String> = doc
         .services
         .iter()

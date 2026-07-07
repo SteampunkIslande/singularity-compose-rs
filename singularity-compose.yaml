@@ -7,12 +7,12 @@ services:
       - /root/nginx/nginx.conf:/opt/nginx.conf
       - /var/log
       - /var/cache
-      - /home/charles/www
     pidfile: /run/nginxd.pid
     image: /root/nginx/nginx.sif
     restart: always
     after: NetworkManager
     requires: NetworkManager
+    service_group: web.essential
   - service_name: bobyd
     description: L'application web boby
     user: boby
@@ -24,3 +24,4 @@ services:
     image: /SINGULARITIES/boby-2.0.sif
     after: NetworkManager SINGULARITIES.mount
     requires: NetworkManager SINGULARITIES.mount nginxd.service
+    service_group: web.optional
