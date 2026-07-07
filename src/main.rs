@@ -23,7 +23,7 @@ struct UnitFile {
     file_content: String,
 }
 
-const YAML_COMPOSE_FILE: &str = "/etc/singularity-compose-rs/all-compose.yaml";
+const YAML_COMPOSE_FILE: &str = "/etc/singularity-compose-rs/compose.yaml";
 
 fn compose_up(up_command: UpCommand, _jinja_env: Environment) -> anyhow::Result<()> {
     let definition_file = Path::new(YAML_COMPOSE_FILE);
@@ -80,6 +80,7 @@ fn compose_up(up_command: UpCommand, _jinja_env: Environment) -> anyhow::Result<
     Ok(())
 }
 
+//systemctl stop $service && systemctl disable $service && rm /etc/systemd/system/$service
 fn compose_build(build_command: BuildCommand, jinja_env: Environment) -> anyhow::Result<()> {
     let definition_file = Path::new(YAML_COMPOSE_FILE);
     let doc: Document = datatypes::Document::try_from_file_path(definition_file)?;
@@ -139,7 +140,6 @@ fn compose_build(build_command: BuildCommand, jinja_env: Environment) -> anyhow:
     Ok(())
 }
 
-//systemctl stop $service && systemctl disable $service && rm /etc/systemd/system/$service
 fn compose_down(down_command: DownCommand, _jinja_env: Environment) -> anyhow::Result<()> {
     let definition_file = Path::new(YAML_COMPOSE_FILE);
     let doc: Document = datatypes::Document::try_from_file_path(definition_file)?;
@@ -170,6 +170,12 @@ fn compose_down(down_command: DownCommand, _jinja_env: Environment) -> anyhow::R
     Ok(())
 }
 
+fn compose_list(list_command: ListCommand, _jinja_env: Environment) -> anyhow::Result<()> {
+    // Shows a tree with every service defined in /etc/singularity-compose-rs/compose.yaml
+    // The root element is called `all services`, and each child node is either a service group name, or a service name (if not part of a group)
+    Ok(())
+}
+
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
@@ -187,17 +193,8 @@ fn main() -> anyhow::Result<()> {
         ComposeSubcommand::Up(up_command) => {
             compose_up(up_command, jinja_env)?;
         }
-        ComposeSubcommand::List => {
-            eprintln!(
-                "{}",
-                String::from_utf8(
-                    std::process::Command::new("systemctl")
-                        .arg("list-unit-files")
-                        .arg("scompose-*")
-                        .output()?
-                        .stdout,
-                )?
-            );
+        ComposeSubcommand::List(list_command) => {
+            compose_list(list_command, jinja_env)?;
         }
         ComposeSubcommand::Build(build_command) => {
             compose_build(build_command, jinja_env)?;

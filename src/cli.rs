@@ -3,7 +3,7 @@ pub enum ComposeSubcommand {
     Build(BuildCommand),
     Up(UpCommand),
     Down(DownCommand),
-    List,
+    List(ListCommand),
 }
 
 /// (Re)-builds all the unit files
@@ -38,6 +38,15 @@ pub struct DownCommand {
     pub dry_run: bool,
 
     /// Groups you want to shutdown (comma-separated)
+    ///
+    /// Note that you can express a group hierarchy with `.`
+    #[arg(long = "groups", short = 'g', value_parser, num_args = 0.., value_delimiter = ',')]
+    pub groups: Vec<String>,
+}
+
+#[derive(clap::Parser, Debug, Clone)]
+pub struct ListCommand {
+    /// Groups you want to list (comma-separated)
     ///
     /// Note that you can express a group hierarchy with `.`
     #[arg(long = "groups", short = 'g', value_parser, num_args = 0.., value_delimiter = ',')]
