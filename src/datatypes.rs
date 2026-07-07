@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{collections::HashSet, path::Path};
 
 use anyhow::{Context, bail};
 use serde::{Deserialize, Serialize};
@@ -56,7 +56,14 @@ impl Document {
             std::fs::File::open(file_path.as_ref())
                 .context(format!("Cannot open `{}`", file_path.as_ref().display()))?,
         )?;
+        let mut all_service_names: HashSet<&str> = HashSet::new();
         for service in doc.services.iter() {
+            if all_service_names.contains(service.service_name.as_str()) {
+                bail!(SingularityComposeError::DuplicateService(
+                    service.service_name.clone()
+                ));
+            }
+            all_service_names.insert(service.service_name.as_str());
             if service.service_name.as_str().contains("\n") {
                 bail!(SingularityComposeError::InvalidField(
                     "Service name cannot contain line breaks".to_string()
