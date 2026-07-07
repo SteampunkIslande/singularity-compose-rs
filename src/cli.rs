@@ -13,24 +13,34 @@ pub enum ComposeSubcommand {
 /// (Re)-builds all the unit files
 #[derive(clap::Parser, Debug, Clone)]
 pub struct BuildCommand {
+    /// Will not write any unit files, only print
+    ///
+    /// This will print every file name, and every file content of all the unit files that would
+    /// be written without this flag.
     #[arg(long = "dry-run", short = 'n')]
     pub dry_run: bool,
 
     /// Groups you want to (re)-build (comma-separated)
     ///
-    /// Note that you can express a group hierarchy with `.`
+    /// Note that you can express a group hierarchy with `.`.
+    /// If omitted, this will build all services defined in `/etc/singularity-compose-rs/compose.yaml`
     #[arg(long = "groups", short = 'g', value_parser, num_args = 0.., value_delimiter = ',')]
     pub groups: Vec<String>,
 }
 
+/// Brings all specified services up
 #[derive(clap::Parser, Debug, Clone)]
 pub struct UpCommand {
+    /// Will not start any service, only print
+    ///
+    /// This will print the systemctl command that would be run without this flag.
     #[arg(long = "dry-run", short = 'n')]
     pub dry_run: bool,
 
-    /// Groups you want to start (comma-separated)
+    /// Groups you want to start
     ///
-    /// Note that you can express a group hierarchy with `.`
+    /// Note that you can express a group hierarchy with `.`.
+    /// If omitted, this will build all services defined in `/etc/singularity-compose-rs/compose.yaml`
     #[arg(long = "groups", short = 'g', value_parser, num_args = 0.., value_delimiter = ',')]
     pub groups: Vec<String>,
 }
@@ -64,7 +74,10 @@ pub struct ListCommand {
 #[derive(clap::Parser, Debug, Clone)]
 pub struct AddCommand {
     /// YAML file to merge into the existing compose file
-    #[arg(short = 'i', long = "input-file")]
+    ///
+    /// Newly defined services will be added to `/etc/singularity-compose-rs/compose.yaml`.
+    /// Services that were already defined in `/etc/singularity-compose-rs/compose.yaml` will be overwritten if different.
+    #[arg(required = true)]
     pub file: PathBuf,
 }
 
