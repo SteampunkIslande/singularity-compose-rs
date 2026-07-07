@@ -156,6 +156,24 @@ impl Document {
         Ok(doc)
     }
 
+    /// Remove services whose `service_name` is in `names`.
+    ///
+    /// The removed services are returned so the caller can act on them
+    /// (e.g. stop/disable their unit files).
+    pub fn remove_services(&mut self, names: &[String]) -> Vec<Service> {
+        let mut removed = Vec::new();
+        let mut remaining = Vec::new();
+        for service in std::mem::take(&mut self.services) {
+            if names.contains(&service.service_name) {
+                removed.push(service);
+            } else {
+                remaining.push(service);
+            }
+        }
+        self.services = remaining;
+        removed
+    }
+
     /// Merge another document into this one.
     ///
     /// For each service in `other` that already exists in `self`, the existing service is

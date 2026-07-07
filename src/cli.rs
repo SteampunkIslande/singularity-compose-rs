@@ -7,6 +7,7 @@ pub enum ComposeSubcommand {
     Down(DownCommand),
     List(ListCommand),
     Add(AddCommand),
+    Remove(RemoveCommand),
 }
 
 /// (Re)-builds all the unit files
@@ -65,6 +66,14 @@ pub struct AddCommand {
     /// YAML file to merge into the existing compose file
     #[arg(short = 'i', long = "input-file")]
     pub file: PathBuf,
+}
+
+/// Remove one or more services from the compose file and stop/disable their unit files.
+#[derive(clap::Parser, Debug, Clone)]
+pub struct RemoveCommand {
+    /// Service names to remove (one or more)
+    #[arg(required = true, num_args = 1..)]
+    pub service_names: Vec<String>,
 }
 
 #[derive(clap::Parser)]

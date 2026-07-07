@@ -9,6 +9,8 @@ use std::{
 use anyhow::bail;
 use clap::Parser;
 
+use is_root::is_root;
+
 use minijinja::{Environment, context};
 
 pub mod cli;
@@ -393,6 +395,70 @@ fn daemon_reload() -> anyhow::Result<()> {
     Ok(())
 }
 
+fn compose_remove(remove_command: RemoveCommand, _jinja_env: Environment) -> anyhow::Result<()> {
+    let definition_file = Path::new(YAML_COMPOSE_FILE);
+    let mut doc = Document::try_from_file_path(definition_file)?;
+
+    let removed = doc.remove_services(&remove_command.service_names);
+    if removed.is_empty() {
+        eprintln!("No services were removed.");
+        return Ok(());
+    }
+
+    for service in &removed {
+        let unit_file_name = format!("scompose-{}.service", service.service_name);
+        let unit_file_path = Path::new("/etc/systemd/system").join(&unit_file_name);
+        eprintln!("Removing service `{}`", service.service_name);
+
+        let status = std::process::Command::new("systemctl")
+            .arg("stop")
+            .arg(&unit_file_name)
+            .status()?;
+        match status.code() {
+            Some(code) if !status.success() => eprintln!(
+                "Warning: `systemctl stop {}` exited with status code: {}",
+                unit_file_name, code
+            ),
+            None => eprintln!(
+                "Warning: `systemctl stop {}` terminated by signal",
+                unit_file_name
+            ),
+            _ => {}
+        }
+
+        let status = std::process::Command::new("systemctl")
+            .arg("disable")
+            .arg(&unit_file_name)
+            .status()?;
+        match status.code() {
+            Some(code) if !status.success() => eprintln!(
+                "Warning: `systemctl disable {}` exited with status code: {}",
+                unit_file_name, code
+            ),
+            None => eprintln!(
+                "Warning: `systemctl disable {}` terminated by signal",
+                unit_file_name
+            ),
+            _ => {}
+        }
+
+        if unit_file_path.exists() {
+            std::fs::remove_file(&unit_file_path)?;
+            eprintln!("Removed unit file: {}", unit_file_path.display());
+        }
+    }
+
+    let file = File::create(definition_file)?;
+    yaml_serde::to_writer(file, &doc)?;
+    eprintln!("Updated compose file: {}", definition_file.display());
+
+    daemon_reload()?;
+
+    eprintln!("Successfully removed {} service(s).", removed.len());
+
+    Ok(())
+}
+
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
@@ -405,21 +471,39 @@ fn main() -> anyhow::Result<()> {
 
     match cli.command {
         ComposeSubcommand::Down(down_command) => {
+            if !is_root() {
+                bail!("You must be root to take services down!")
+            }
             compose_down(down_command, jinja_env)?;
         }
         ComposeSubcommand::Up(up_command) => {
+            if !is_root() {
+                bail!("You must be root to bring services up!")
+            }
             compose_up(up_command, jinja_env)?;
         }
         ComposeSubcommand::List(list_command) => {
             compose_list(list_command, jinja_env)?;
         }
         ComposeSubcommand::Build(build_command) => {
+            if !is_root() {
+                bail!("You must be root to create new services!")
+            }
             compose_build(build_command, jinja_env)?;
             daemon_reload()?;
         }
         ComposeSubcommand::Add(add_command) => {
+            if !is_root() {
+                bail!("You must be root to create new services!")
+            }
             compose_add(add_command, jinja_env)?;
             daemon_reload()?;
+        }
+        ComposeSubcommand::Remove(remove_command) => {
+            if !is_root() {
+                bail!("You must be root to remove services!")
+            }
+            compose_remove(remove_command, jinja_env)?;
         }
     }
     Ok(())

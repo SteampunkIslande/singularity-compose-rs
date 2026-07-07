@@ -10,41 +10,17 @@ services:
     pidfile: /run/nginxd.pid
     image: /root/nginx/nginx.sif
     restart: always
-    after: NetworkManager
-    requires: NetworkManager
+    after: NetworkManager.service
+    requires: NetworkManager.service
     service_group: web.essential
-  - service_name: bobyd
-    description: L'application web boby
-    user: boby
-    group: bioinfo
+  - service_name: gitead
+    description: Gitea, l'application web pour git
+    user: charles
+    group: charles
     volumes:
-      - /OPT/boby/boby-static:/static
-      - /OPT/boby/boby-samplesheets:/samplesheets
-    pidfile: /run/bobyd.pid
-    image: /SINGULARITIES/boby-2.0.sif
-    after: NetworkManager SINGULARITIES.mount
-    requires: NetworkManager SINGULARITIES.mount nginxd.service
+      - /home/charles/gitea-cluster-install/data-gitea:/data/gitea
+    pidfile: /home/charles/gitea.pid
+    image: /data/singularity_images/gitea-1.26.4.sif
+    after: NetworkManager.service
+    requires: NetworkManager.service scompose-nginxd.service
     service_group: web.optional
-  - service_name: boby2d
-    description: L'application web boby (2)
-    user: boby
-    group: bioinfo
-    volumes:
-      - /OPT/boby/boby-static:/static
-      - /OPT/boby/boby-samplesheets:/samplesheets
-    pidfile: /run/bobyd.pid
-    image: /SINGULARITIES/boby-2.0.sif
-    after: NetworkManager SINGULARITIES.mount
-    requires: NetworkManager SINGULARITIES.mount nginxd.service
-    service_group: web
-  - service_name: none
-    description: L'application web boby (2)
-    user: boby
-    group: bioinfo
-    volumes:
-      - /OPT/boby/boby-static:/static
-      - /OPT/boby/boby-samplesheets:/samplesheets
-    pidfile: /run/bobyd.pid
-    image: /SINGULARITIES/boby-2.0.sif
-    after: NetworkManager SINGULARITIES.mount
-    requires: NetworkManager SINGULARITIES.mount nginxd.service
