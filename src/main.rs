@@ -43,7 +43,15 @@ fn compose_up(up_command: UpCommand, _jinja_env: Environment) -> anyhow::Result<
         .map(|s| format!("scompose-{}.service", s.service_name))
         .collect();
     if up_command.dry_run {
-        eprintln!("Below is the command that would be run.");
+        eprintln!("Below are the commands that would be run.");
+        eprintln!(
+            "First, start.\nWould call `systemctl start {}`",
+            service_names.join(" ")
+        );
+        eprintln!(
+            "Then, enable.\nWould call `systemctl enable {}`",
+            service_names.join(" ")
+        )
     } else {
         if !service_names
             .iter()
@@ -218,7 +226,7 @@ fn cleanup(definition_file: &Path, dry_run: bool) -> anyhow::Result<()> {
             "The following services would be removed: {}",
             orphans
                 .iter()
-                .map(|o| format!("service: `{}̀ - file: `{}`", o.0.display(), o.1))
+                .map(|o| format!("service: `{}` - file: `{}`", o.1, o.0.display()))
                 .collect::<Vec<_>>()
                 .join("\n")
         );
@@ -461,6 +469,7 @@ fn compose_add(add_command: AddCommand, _jinja_env: Environment) -> anyhow::Resu
     } else {
         unit_files_from_services(&added, _jinja_env, false)?;
     }
+    daemon_reload()?;
 
     eprintln!(
         "Successfully merged compose file. {} service(s) added, {} overwritten, {} left unchanged.",
