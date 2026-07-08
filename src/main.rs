@@ -28,75 +28,13 @@ struct UnitFile {
 const YAML_COMPOSE_DIR: &str = "/etc/singularity-compose-rs";
 const YAML_COMPOSE_FILE: &str = "/etc/singularity-compose-rs/compose.yaml";
 
+/// Utility function to create the required directory `/etc/singularity-compose-rs`
 fn ensure_etc_exists() -> anyhow::Result<()> {
     std::fs::create_dir_all(Path::new(YAML_COMPOSE_DIR))?;
     Ok(())
 }
 
-fn compose_up(up_command: UpCommand, _jinja_env: Environment) -> anyhow::Result<()> {
-    let definition_file = Path::new(YAML_COMPOSE_FILE);
-    let doc: Document = datatypes::Document::try_from_file_path(definition_file)?;
-
-    let services = doc.services_for_groups(&up_command.groups);
-    let service_names: Vec<String> = services
-        .iter()
-        .map(|s| format!("scompose-{}.service", s.service_name))
-        .collect();
-    if up_command.dry_run {
-        eprintln!("Below are the commands that would be run.");
-        eprintln!(
-            "First, start.\nWould call `systemctl start {}`",
-            service_names.join(" ")
-        );
-        eprintln!(
-            "Then, enable.\nWould call `systemctl enable {}`",
-            service_names.join(" ")
-        )
-    } else {
-        if !service_names
-            .iter()
-            .all(|service_name| Path::new("/etc/systemd/system").join(service_name).exists())
-        {
-            bail!(
-                "Cannot activate required services:\n{}\nSome files are missing. Please run `singularity-compose-rs build` to update service files.",
-                services
-                    .iter()
-                    .map(|s| format!("- `{}`", s.service_name.as_str()))
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            );
-        }
-        let status = std::process::Command::new("systemctl")
-            .arg("start")
-            .args(&service_names)
-            .status()?;
-        match status.code() {
-            Some(code) if !status.success() => eprintln!(
-                "Process `systemctl start {}` exited with status code: {code}",
-                service_names.join(" ")
-            ),
-            Some(_) => eprintln!("Successfully activated services."),
-            None => eprintln!(
-                "Process terminated by signal {}.",
-                status.signal().unwrap_or(-1)
-            ),
-        }
-        let status = std::process::Command::new("systemctl")
-            .arg("enable")
-            .args(&service_names)
-            .status()?;
-        match status.code() {
-            Some(code) if !status.success() => eprintln!(
-                "Process `systemctl enable {}` exited with status code: {code}",
-                service_names.join(" ")
-            ),
-            Some(_) => eprintln!("Successfully enabled services."),
-            None => eprintln!("Process terminated by signal"),
-        }
-    }
-    Ok(())
-}
-
+/// Utility function to (over)write unit files from a list of services
 fn unit_files_from_services(
     services: &[Service],
     jinja_env: Environment,
@@ -157,6 +95,7 @@ fn unit_files_from_services(
     Ok(())
 }
 
+/// Utility function to delete unit files that are no longer defined in `/etc/singularity-compose-rs`
 fn cleanup(definition_file: &Path, dry_run: bool) -> anyhow::Result<()> {
     let known: HashSet<String> = datatypes::Document::try_from_file_path(definition_file)
         .context(
@@ -184,6 +123,7 @@ fn cleanup(definition_file: &Path, dry_run: bool) -> anyhow::Result<()> {
     }
 
     if !dry_run {
+        eprintln!("Found {} orphan services to remove.", orphans.len());
         for (path, name) in &orphans {
             eprintln!("Removing orphan service `{}`", name);
 
@@ -222,8 +162,9 @@ fn cleanup(definition_file: &Path, dry_run: bool) -> anyhow::Result<()> {
             orphans.len()
         );
     } else {
+        eprintln!("{} orphan services found.", orphans.len());
         eprintln!(
-            "The following services would be removed: {}",
+            "The following services would be removed (once stopped and disabled): {}",
             orphans
                 .iter()
                 .map(|o| format!("service: `{}` - file: `{}`", o.1, o.0.display()))
@@ -234,6 +175,93 @@ fn cleanup(definition_file: &Path, dry_run: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Utility function to update systemd so it can forget deleted services and acknowledge new/changed ones.
+fn daemon_reload() -> anyhow::Result<()> {
+    let status = std::process::Command::new("systemctl")
+        .arg("daemon-reload")
+        .status()?;
+    if let Some(code) = status.code() {
+        if !status.success() {
+            bail!(
+                "Command `systemctl daemon-reload` exited with status {}",
+                code
+            );
+        }
+    } else {
+        bail!(
+            "Command `systemctl daemon-reload` was interrupted by signal {}",
+            status.signal().unwrap_or(-1)
+        );
+    }
+    Ok(())
+}
+
+/// Entry point function to start services
+fn compose_up(up_command: UpCommand, _jinja_env: Environment) -> anyhow::Result<()> {
+    let definition_file = Path::new(YAML_COMPOSE_FILE);
+    let doc: Document = datatypes::Document::try_from_file_path(definition_file)?;
+
+    let services = doc.services_for_groups(&up_command.groups);
+    let service_names: Vec<String> = services
+        .iter()
+        .map(|s| format!("scompose-{}.service", s.service_name))
+        .collect();
+    if up_command.dry_run {
+        eprintln!("Below are the commands that would be run.");
+        eprintln!(
+            "First, start.\nWould call `systemctl start {}`",
+            service_names.join(" ")
+        );
+        eprintln!(
+            "Then, enable.\nWould call `systemctl enable {}`",
+            service_names.join(" ")
+        )
+    } else {
+        if !service_names
+            .iter()
+            .all(|service_name| Path::new("/etc/systemd/system").join(service_name).exists())
+        {
+            bail!(
+                "Cannot activate required services:\n{}\nSome files are missing. Please run `scompose build` to update service files.",
+                services
+                    .iter()
+                    .map(|s| format!("- `{}`", s.service_name.as_str()))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            );
+        }
+        let status = std::process::Command::new("systemctl")
+            .arg("start")
+            .args(&service_names)
+            .status()?;
+        match status.code() {
+            Some(code) if !status.success() => eprintln!(
+                "Process `systemctl start {}` exited with status code: {code}",
+                service_names.join(" ")
+            ),
+            Some(_) => eprintln!("Successfully activated services."),
+            None => eprintln!(
+                "Process terminated by signal {}.",
+                status.signal().unwrap_or(-1)
+            ),
+        }
+        let status = std::process::Command::new("systemctl")
+            .arg("enable")
+            .args(&service_names)
+            .status()?;
+        match status.code() {
+            Some(code) if !status.success() => eprintln!(
+                "Process `systemctl enable {}` exited with status code: {code}",
+                service_names.join(" ")
+            ),
+            Some(_) => eprintln!("Successfully enabled services."),
+            None => eprintln!("Process terminated by signal"),
+        }
+    }
+    Ok(())
+}
+
+/// Entry point function to update unit files according to current content of `/etc/singularity-compose-rs/compose.yaml`
 fn compose_build(build_command: BuildCommand, jinja_env: Environment) -> anyhow::Result<()> {
     let definition_file = Path::new(YAML_COMPOSE_FILE);
     let doc: Document = datatypes::Document::try_from_file_path(definition_file)?;
@@ -249,6 +277,7 @@ fn compose_build(build_command: BuildCommand, jinja_env: Environment) -> anyhow:
     Ok(())
 }
 
+/// Entry point function to stop services
 fn compose_down(down_command: DownCommand, _jinja_env: Environment) -> anyhow::Result<()> {
     let definition_file = Path::new(YAML_COMPOSE_FILE);
     let doc: Document = datatypes::Document::try_from_file_path(definition_file)?;
@@ -280,6 +309,7 @@ fn compose_down(down_command: DownCommand, _jinja_env: Environment) -> anyhow::R
     Ok(())
 }
 
+/// Entry point function to list services that are defined in `/etc/singularity-compose-rs/compose.yaml`
 fn compose_list(list_command: ListCommand, _jinja_env: Environment) -> anyhow::Result<()> {
     let definition_file = Path::new(YAML_COMPOSE_FILE);
     let doc: Document = if !definition_file.exists() {
@@ -379,6 +409,7 @@ fn compose_list(list_command: ListCommand, _jinja_env: Environment) -> anyhow::R
     Ok(())
 }
 
+/// Entry point function to add existing yaml to `/etc/singularity-compose-rs/compose.yaml`. This function also generates the appropriate unit files.
 fn compose_add(add_command: AddCommand, _jinja_env: Environment) -> anyhow::Result<()> {
     let definition_file = Path::new(YAML_COMPOSE_FILE);
     // Create dir if it doesn't exist yet
@@ -481,26 +512,7 @@ fn compose_add(add_command: AddCommand, _jinja_env: Environment) -> anyhow::Resu
     Ok(())
 }
 
-fn daemon_reload() -> anyhow::Result<()> {
-    let status = std::process::Command::new("systemctl")
-        .arg("daemon-reload")
-        .status()?;
-    if let Some(code) = status.code() {
-        if !status.success() {
-            bail!(
-                "Command `systemctl daemon-reload` exited with status {}",
-                code
-            );
-        }
-    } else {
-        bail!(
-            "Command `systemctl daemon-reload` was interrupted by signal {}",
-            status.signal().unwrap_or(-1)
-        );
-    }
-    Ok(())
-}
-
+/// Entry point function to cleanly remove a service from `/etc/singularity-compose-rs/compose.yaml`.
 fn compose_remove(remove_command: RemoveCommand, _jinja_env: Environment) -> anyhow::Result<()> {
     let definition_file = Path::new(YAML_COMPOSE_FILE);
     let mut doc = Document::try_from_file_path(definition_file)?;
@@ -565,6 +577,7 @@ fn compose_remove(remove_command: RemoveCommand, _jinja_env: Environment) -> any
     Ok(())
 }
 
+/// Entry point function to remove any orphan service. This is somehow redundant with the `build` command, except this one only removes orphan service files without generating new ones.
 fn compose_clean() -> anyhow::Result<()> {
     let definition_file = Path::new(YAML_COMPOSE_FILE);
     cleanup(&definition_file, false)?;

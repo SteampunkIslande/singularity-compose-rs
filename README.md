@@ -293,7 +293,7 @@ flowchart TD
     C --> D
     D --> E(scompose generates unit files\n/etc/systemd/system/scompose-*.service)
     E --> F(scompose runs systemctl daemon-reload)
-    F --> G[User runs scompose up to apply above changes]
+    F --> G[User runs scompose up to activate these new services]
     G -->|scompose up| H(scompose starts and enables all services)
     G -->|scompose up -g ...| I(scompose starts and enables services in specified group)
     H --> J[User manages the services]
