@@ -11,7 +11,7 @@ pub enum ComposeSubcommand {
     /// Removes scompose unit files that are no longer defined in `/etc/singularity-compose-rs/compose.yaml`.
     ///
     /// This ensures `/etc/systemd/system` doesn't contain any `scompose-*` file that does not appear in `/etc/singularity-compose-rs/compose.yaml`.
-    /// This shouldn't happen, since
+    /// This shouldn't happen if you're using the proper method of calling `scompose remove <service name>` to remove a service, instead of directly editing the compose file.
     Clean,
 }
 
@@ -34,8 +34,9 @@ pub struct BuildCommand {
     pub groups: Vec<String>,
 }
 
-/// Brings all specified services up.
+/// Starts either all defined services, or only those matching the `-g/--groups` filter.
 ///
+/// Activates all the services that are defined in `/etc/singularity-compose-rs/compose.yaml` (or the ones specified with --groups).
 #[derive(clap::Parser, Debug, Clone)]
 pub struct UpCommand {
     /// Will not start any service, only print
@@ -52,8 +53,9 @@ pub struct UpCommand {
     pub groups: Vec<String>,
 }
 
-/// Shuts down all the services that are defined in `/etc/singularity-compose-rs/compose.yaml` (or the ones specified with --groups).
+/// Stops either all defined services, or only those matching the `-g/--groups` filter.
 ///
+/// Shuts down all the services that are defined in `/etc/singularity-compose-rs/compose.yaml` (or the ones specified with --groups).
 #[derive(clap::Parser, Debug, Clone)]
 pub struct DownCommand {
     #[arg(long = "dry-run", short = 'n')]
@@ -67,7 +69,6 @@ pub struct DownCommand {
 }
 
 /// Lists all services defined in `/etc/singularity-compose-rs/compose.yaml`. Displays them as a tree.
-///
 #[derive(clap::Parser, Debug, Clone)]
 pub struct ListCommand {
     /// Groups you want to list (comma-separated)
@@ -92,7 +93,6 @@ pub struct AddCommand {
 }
 
 /// Remove one or more services from the compose file and stop/disable their unit files.
-///
 #[derive(clap::Parser, Debug, Clone)]
 pub struct RemoveCommand {
     /// Service names to remove (one or more)

@@ -149,6 +149,83 @@ fn unit_files_from_services(
     Ok(())
 }
 
+fn cleanup(definition_file: &Path, dry_run: bool) -> anyhow::Result<()> {
+    let known: HashSet<String> = datatypes::Document::try_from_file_path(definition_file)
+        .context(
+            "Le fichier `/etc/singularitycompose-rs/compose.yaml` ne peut pas être interprété.",
+        )?
+        .services
+        .iter()
+        .map(|s| format!("scompose-{}.service", s.service_name))
+        .collect();
+
+    let orphans: Vec<(PathBuf, String)> = glob::glob("/etc/systemd/system/scompose-*.service")
+        .context("Invalid glob pattern, this is a developer's mistake")?
+        .filter_map(Result::ok)
+        .filter_map(|p| {
+            p.file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .map(|name| (p, name))
+        })
+        .filter(|(_, name)| !known.contains(name))
+        .collect();
+
+    if orphans.is_empty() {
+        eprintln!("Nothing to clean: no orphan service files found.");
+        return Ok(());
+    }
+
+    if !dry_run {
+        for (path, name) in &orphans {
+            eprintln!("Removing orphan service `{}`", name);
+
+            let status = std::process::Command::new("systemctl")
+                .arg("stop")
+                .arg(name)
+                .status()?;
+            match status.code() {
+                Some(code) if !status.success() => eprintln!(
+                    "Warning: `systemctl stop {}` exited with status code: {}",
+                    name, code
+                ),
+                None => eprintln!("Warning: `systemctl stop {}` terminated by signal", name),
+                _ => {}
+            }
+
+            let status = std::process::Command::new("systemctl")
+                .arg("disable")
+                .arg(name)
+                .status()?;
+            match status.code() {
+                Some(code) if !status.success() => eprintln!(
+                    "Warning: `systemctl disable {}` exited with status code: {}",
+                    name, code
+                ),
+                None => eprintln!("Warning: `systemctl disable {}` terminated by signal", name),
+                _ => {}
+            }
+
+            if path.exists() {
+                std::fs::remove_file(path)?;
+            }
+        }
+        eprintln!(
+            "Clean complete: removed {} orphan service file(s).",
+            orphans.len()
+        );
+    } else {
+        eprintln!(
+            "The following services would be removed: {}",
+            orphans
+                .iter()
+                .map(|o| format!("service: `{}̀ - file: `{}`", o.0.display(), o.1))
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
+    }
+    Ok(())
+}
+
 fn compose_build(build_command: BuildCommand, jinja_env: Environment) -> anyhow::Result<()> {
     let definition_file = Path::new(YAML_COMPOSE_FILE);
     let doc: Document = datatypes::Document::try_from_file_path(definition_file)?;
@@ -157,6 +234,9 @@ fn compose_build(build_command: BuildCommand, jinja_env: Environment) -> anyhow:
         jinja_env,
         build_command.dry_run,
     )?;
+    // When building, we only generate new unit_files from services. But some unit files might be absent from `/etc/singularity-compose-rs/compose.yaml`. These files must be cleaned up.
+    cleanup(&definition_file, build_command.dry_run)?;
+    daemon_reload()?;
 
     Ok(())
 }
@@ -478,73 +558,8 @@ fn compose_remove(remove_command: RemoveCommand, _jinja_env: Environment) -> any
 
 fn compose_clean() -> anyhow::Result<()> {
     let definition_file = Path::new(YAML_COMPOSE_FILE);
-
-    let known: HashSet<String> = datatypes::Document::try_from_file_path(definition_file)
-        .context(
-            "Le fichier `/etc/singularitycompose-rs/compose.yaml` ne peut pas être interprété.",
-        )?
-        .services
-        .iter()
-        .map(|s| format!("scompose-{}.service", s.service_name))
-        .collect();
-
-    let orphans: Vec<(PathBuf, String)> = glob::glob("/etc/systemd/system/scompose-*.service")
-        .context("Invalid glob pattern, this is a developer's mistake")?
-        .filter_map(Result::ok)
-        .filter_map(|p| {
-            p.file_name()
-                .map(|n| n.to_string_lossy().to_string())
-                .map(|name| (p, name))
-        })
-        .filter(|(_, name)| !known.contains(name))
-        .collect();
-
-    if orphans.is_empty() {
-        eprintln!("Nothing to clean: no orphan service files found.");
-        return Ok(());
-    }
-
-    for (path, name) in &orphans {
-        eprintln!("Removing orphan service `{}`", name);
-
-        let status = std::process::Command::new("systemctl")
-            .arg("stop")
-            .arg(name)
-            .status()?;
-        match status.code() {
-            Some(code) if !status.success() => eprintln!(
-                "Warning: `systemctl stop {}` exited with status code: {}",
-                name, code
-            ),
-            None => eprintln!("Warning: `systemctl stop {}` terminated by signal", name),
-            _ => {}
-        }
-
-        let status = std::process::Command::new("systemctl")
-            .arg("disable")
-            .arg(name)
-            .status()?;
-        match status.code() {
-            Some(code) if !status.success() => eprintln!(
-                "Warning: `systemctl disable {}` exited with status code: {}",
-                name, code
-            ),
-            None => eprintln!("Warning: `systemctl disable {}` terminated by signal", name),
-            _ => {}
-        }
-
-        if path.exists() {
-            std::fs::remove_file(path)?;
-        }
-    }
-
+    cleanup(&definition_file, false)?;
     daemon_reload()?;
-
-    eprintln!(
-        "Clean complete: removed {} orphan service file(s).",
-        orphans.len()
-    );
-
     Ok(())
 }
 
@@ -579,14 +594,12 @@ fn main() -> anyhow::Result<()> {
                 bail!("You must be root to create new services!")
             }
             compose_build(build_command, jinja_env)?;
-            daemon_reload()?;
         }
         ComposeSubcommand::Add(add_command) => {
             if !is_root() {
                 bail!("You must be root to create new services!")
             }
             compose_add(add_command, jinja_env)?;
-            daemon_reload()?;
         }
         ComposeSubcommand::Remove(remove_command) => {
             if !is_root() {
