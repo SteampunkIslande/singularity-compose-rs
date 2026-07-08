@@ -87,6 +87,7 @@ Commands:
   list    
   add     Merge a compose file into the existing one and (re)-builds
   remove  Remove one or more services from the compose file and stop/disable their unit files
+  clean   Remove orphan service unit files no longer defined in the compose file
   help    Print this message or the help of the given subcommand(s)
 
 Options:
@@ -212,6 +213,19 @@ Arguments:
 Options:
   -h, --help  Print help
 ```
+
+### Clean
+
+```
+Removes orphan service unit files that are no longer defined in the compose file.
+
+Usage: scompose clean
+```
+
+`clean` finds every `scompose-*.service` file in `/etc/systemd/system` that is **not** listed in `/etc/singularity-compose-rs/compose.yaml`, stops and disables each one, deletes the unit file, and runs `systemctl daemon-reload`.
+
+> **Note:** If you find orphan service files, it almost certainly means you (or someone else) removed services by editing `compose.yaml` by hand instead of using the proper `remove` command.
+> Prefer `scompose remove <name>` for normal service removal — it updates the compose file, stops/disables the service, and removes the unit file all in one step. `clean` is provided as a recovery/cleanup tool for cases where the two got out of sync.
 
 ## Example Compose File
 

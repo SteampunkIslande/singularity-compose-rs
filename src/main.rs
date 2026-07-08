@@ -1,11 +1,12 @@
 use std::{
+    collections::HashSet,
     fs::File,
     io::Write,
     os::unix::process::ExitStatusExt,
     path::{Path, PathBuf},
 };
 
-use anyhow::bail;
+use anyhow::{Context, bail};
 use clap::Parser;
 
 use is_root::is_root;
@@ -480,6 +481,78 @@ fn compose_remove(remove_command: RemoveCommand, _jinja_env: Environment) -> any
     Ok(())
 }
 
+fn compose_clean() -> anyhow::Result<()> {
+    let definition_file = Path::new(YAML_COMPOSE_FILE);
+
+    let known: HashSet<String> = datatypes::Document::try_from_file_path(definition_file)
+        .context(
+            "Le fichier `/etc/singularitycompose-rs/compose.yaml` ne peut pas être interprété.",
+        )?
+        .services
+        .iter()
+        .map(|s| format!("scompose-{}.service", s.service_name))
+        .collect();
+
+    let orphans: Vec<(PathBuf, String)> = glob::glob("/etc/systemd/system/scompose-*.service")
+        .context("Invalid glob pattern, this is a developer's mistake")?
+        .filter_map(Result::ok)
+        .filter_map(|p| {
+            p.file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .map(|name| (p, name))
+        })
+        .filter(|(_, name)| !known.contains(name))
+        .collect();
+
+    if orphans.is_empty() {
+        eprintln!("Nothing to clean: no orphan service files found.");
+        return Ok(());
+    }
+
+    for (path, name) in &orphans {
+        eprintln!("Removing orphan service `{}`", name);
+
+        let status = std::process::Command::new("systemctl")
+            .arg("stop")
+            .arg(name)
+            .status()?;
+        match status.code() {
+            Some(code) if !status.success() => eprintln!(
+                "Warning: `systemctl stop {}` exited with status code: {}",
+                name, code
+            ),
+            None => eprintln!("Warning: `systemctl stop {}` terminated by signal", name),
+            _ => {}
+        }
+
+        let status = std::process::Command::new("systemctl")
+            .arg("disable")
+            .arg(name)
+            .status()?;
+        match status.code() {
+            Some(code) if !status.success() => eprintln!(
+                "Warning: `systemctl disable {}` exited with status code: {}",
+                name, code
+            ),
+            None => eprintln!("Warning: `systemctl disable {}` terminated by signal", name),
+            _ => {}
+        }
+
+        if path.exists() {
+            std::fs::remove_file(path)?;
+        }
+    }
+
+    daemon_reload()?;
+
+    eprintln!(
+        "Clean complete: removed {} orphan service file(s).",
+        orphans.len()
+    );
+
+    Ok(())
+}
+
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
@@ -525,6 +598,12 @@ fn main() -> anyhow::Result<()> {
                 bail!("You must be root to remove services!")
             }
             compose_remove(remove_command, jinja_env)?;
+        }
+        ComposeSubcommand::Clean => {
+            if !is_root() {
+                bail!("You must be root to remove services!")
+            }
+            compose_clean()?;
         }
     }
     Ok(())

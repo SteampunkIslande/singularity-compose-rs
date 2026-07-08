@@ -8,6 +8,11 @@ pub enum ComposeSubcommand {
     List(ListCommand),
     Add(AddCommand),
     Remove(RemoveCommand),
+    /// Removes scompose unit files that are no longer defined in `/etc/singularity-compose-rs/compose.yaml`.
+    ///
+    /// This ensures `/etc/systemd/system` doesn't contain any `scompose-*` file that does not appear in `/etc/singularity-compose-rs/compose.yaml`.
+    /// This shouldn't happen, since
+    Clean,
 }
 
 /// (Re)-builds all the unit files.
@@ -78,7 +83,7 @@ pub struct ListCommand {
 /// There is no dry run mode for this command, use with caution!
 #[derive(clap::Parser, Debug, Clone)]
 pub struct AddCommand {
-    /// YAML file to merge into the existing compose file
+    /// YAML file to merge into the existing compose file.
     ///
     /// Newly defined services will be added to `/etc/singularity-compose-rs/compose.yaml`.
     /// Services that were already defined in `/etc/singularity-compose-rs/compose.yaml` will be overwritten if different.
