@@ -262,23 +262,52 @@ When `build` is run, the tool validates the compose file, checks that the Singul
 
 # Tutorial
 
-In this tutorial, I will assume that `singularity-compose-rs` is aliased to `scompose`.
+> This tutorial assumes `singularity-compose-rs` is aliased to `scompose`.
 
-## First services definitions
+## Lifecycle
 
-For the first service definitions, you have a choice: either create a file named `/etc/singularity-compose-rs/compose.yaml`, or run `scompose add <path to an existing yaml file>`.
+```mermaid
+---
+config:
+  flowchart:
+    curve: linear
+---
+flowchart TD
+    A[User creates or edits /etc/singularity-compose-rs/compose.yaml] --> B[User runs scompose add \nor\nscompose build]
+    B -->|add| C(scompose merges services into compose.yaml)
+    B -->|build| D(scompose validates compose file)
+    C --> D
+    D --> E(scompose generates unit files\n/etc/systemd/system/scompose-*.service)
+    E --> F(scompose runs systemctl daemon-reload)
+    F --> G[User runs scompose up to apply above changes]
+    G -->|scompose up| H(scompose starts and enables all services)
+    G -->|scompose up -g ...| I(scompose starts and enables services in specified group)
+    H --> J[User manages the services]
+    I --> J
+    J -->|scompose list| K[View service tree]
+    J -->|scompose down| L[Stop services]
+    J -->|scompose remove <name>| M[Remove service & unit file]
+    J -->|scompose up| N[Activate services]
+    J -->|Edit compose.yaml| A
+```
 
-Either way, you need to create a yaml file with at least one entry named `services`. Each service must be defined with the required keywords that are listed [here](#service-definition-keywords).
-You can also take a look at the [provided example file](#example-compose-file).
+## Quick start
 
-If you directly wrote to `/etc/singularity-compose-rs/compose.yaml`, you can simply run `scompose build`. This will generate unit files in `/etc/systemd/system`, they will be named `scompose-{service_name}.service`.
-Otherwise, run `scompose add <path to an existing yaml file>`. This will generate the unit files just like `build` does.
-If the input file to `scompose add` redefines some services already listed in the original `/etc/singularity-compose-rs/compose.yaml` file, these services will be stopped, disabled, and their unit file deleted and re-created with the new definition.
+1. **Define services** — create `/etc/singularity-compose-rs/compose.yaml` (see [keywords](#service-definition-keywords) and [example](#example-compose-file)).
 
-## Activate defined services
+2. **Build unit files** — run `scompose build`. This validates the compose file, generates `/etc/systemd/system/scompose-<service_name>.service` for each service, and reloads systemd.
 
-Once you've run `scompose build`, to activate said services, run `scompose up`. To activate only one group of services, use the `-g/--groups` option, for instance: `scompose up web` will activate all services defined with the prefix `web` in their `service_group` field.
-So this would activate services with any of `web`, `web.essential`, and `web.optional` defined in their `service_group` field.
+3. **Start services** — run `scompose up` to bring everything up, or `scompose up -g <group>` to start a subset (e.g. `scompose up -g web`).
+
+### Adding services later
+
+Instead of editing the main compose file by hand, you can merge a new YAML file into it:
+
+```bash
+scompose add /path/to/new-services.yaml
+```
+
+This merges the new definitions into `compose.yaml`, stops and re-creates unit files for any redefined services, and rebuilds automatically.
 
 # Troubleshooting
 
