@@ -10,7 +10,8 @@ pub enum ComposeSubcommand {
     Remove(RemoveCommand),
 }
 
-/// (Re)-builds all the unit files
+/// (Re)-builds all the unit files.
+///
 #[derive(clap::Parser, Debug, Clone)]
 pub struct BuildCommand {
     /// Will not write any unit files, only print
@@ -28,7 +29,8 @@ pub struct BuildCommand {
     pub groups: Vec<String>,
 }
 
-/// Brings all specified services up
+/// Brings all specified services up.
+///
 #[derive(clap::Parser, Debug, Clone)]
 pub struct UpCommand {
     /// Will not start any service, only print
@@ -45,7 +47,8 @@ pub struct UpCommand {
     pub groups: Vec<String>,
 }
 
-/// Shuts down all the services that are defined in the singularity-compose.yaml file (or the file specified with --file).
+/// Shuts down all the services that are defined in `/etc/singularity-compose-rs/compose.yaml` (or the ones specified with --groups).
+///
 #[derive(clap::Parser, Debug, Clone)]
 pub struct DownCommand {
     #[arg(long = "dry-run", short = 'n')]
@@ -58,6 +61,8 @@ pub struct DownCommand {
     pub groups: Vec<String>,
 }
 
+/// Lists all services defined in `/etc/singularity-compose-rs/compose.yaml`. Displays them as a tree.
+///
 #[derive(clap::Parser, Debug, Clone)]
 pub struct ListCommand {
     /// Groups you want to list (comma-separated)
@@ -82,6 +87,7 @@ pub struct AddCommand {
 }
 
 /// Remove one or more services from the compose file and stop/disable their unit files.
+///
 #[derive(clap::Parser, Debug, Clone)]
 pub struct RemoveCommand {
     /// Service names to remove (one or more)

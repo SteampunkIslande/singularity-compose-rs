@@ -69,7 +69,7 @@ sudo ln -s /usr/bin/singularity-compose-rs /usr/bin/scompose
 The resulting binary is 100% standalone, you can just copy it and it will work on any linux computer with `Linux kernel >=2.6.39` (so basically any linux distribution will do).
 
 
-## Usage
+## CLI usage
 
 `singularity-compose-rs` is just a unit files builder. It will write all the appropriate unit files in order for your singularity instances to be defined as services. It then allows you to bring them up all at once, take them down all at once, or let you choose which groups you'd like to start/stop.
 
@@ -77,7 +77,6 @@ The compose file is read from `/etc/singularity-compose-rs/compose.yaml` and thi
 
 You can also specify service groups, and choosing which groups you'd like to build, bring up, or take down.
 
-General usage
 ```
 Usage: scompose <COMMAND>
 
@@ -95,8 +94,6 @@ Options:
 ```
 
 ### Build
-
-Builds the unit files for all services by default. Use `--groups` to restrict to a specific set of services.
 
 ```
 (Re)-builds all the unit files
@@ -123,8 +120,6 @@ It is up to the user to bring them up using the `up` command.
 
 ### Up
 
-Starts all the services by default. Use `--groups` to restrict to a specific set of services.
-
 ```
 Brings all specified services up
 
@@ -147,43 +142,76 @@ Options:
 
 ### Down
 
-Stops the selected services.
+```
+Shuts down all the services that are defined in `/etc/singularity-compose-rs/compose.yaml` (or the ones specified with --groups)
 
-```bash
-singularity-compose-rs down [OPTIONS]
+Usage: scompose down [OPTIONS]
+
+Options:
+  -n, --dry-run
+          
+
+  -g, --groups [<GROUPS>...]
+          Groups you want to shutdown (comma-separated)
+          
+          Note that you can express a group hierarchy with `.`
+
+  -h, --help
+          Print help (see a summary with '-h')
 ```
 
 ### List
 
-Lists the selected services in a tree format.
+```
+Lists all services defined in `/etc/singularity-compose-rs/compose.yaml`. Displays them as a tree
 
-```bash
-singularity-compose-rs list [OPTIONS]
+Usage: scompose list [OPTIONS]
+
+Options:
+  -g, --groups [<GROUPS>...]
+          Groups you want to list (comma-separated)
+          
+          Note that you can express a group hierarchy with `.`
+
+  -h, --help
+          Print help (see a summary with '-h')
 ```
 
-Note: this command is the only one that does **not** require root privileges.
+> Note: this command is the only one that does **not** require root privileges.
 
 ### Add
 
-Merges a new compose file into the existing one and (re)-builds the affected unit files.
-
-```bash
-singularity-compose-rs add --file <FILE>
 ```
+Merge a compose file into the existing one and (re)-builds.
 
-This command only stops, disables, and overwrites unit files for services that are re-defined in the input file. Newly added services are built and unit files are written.
+This command only stops/disables/overwrites services that are re-defined in the input file. There is no dry run mode for this command, use with caution!
 
-Note: this requires root privileges. **There is no dry-run mode for this command; use with caution.**
+Usage: scompose add <FILE>
+
+Arguments:
+  <FILE>
+          YAML file to merge into the existing compose file
+          
+          Newly defined services will be added to `/etc/singularity-compose-rs/compose.yaml`. Services that were already defined in `/etc/singularity-compose-rs/compose.yaml` will be overwritten if different.
+
+Options:
+  -h, --help
+          Print help (see a summary with '-h')
+```
 
 ### Remove
 
-Removes one or more services from the compose file, stops and disables their unit files, and removes the unit files.
-
-```bash
-singularity-compose-rs remove <SERVICE_NAME>...
 ```
+Remove one or more services from the compose file and stop/disable their unit files
 
-Note: this requires root privileges.
+Usage: scompose remove <SERVICE_NAMES>...
+
+Arguments:
+  <SERVICE_NAMES>...  Service names to remove (one or more)
+
+Options:
+  -h, --help  Print help
+```
 
 ## Example Compose File
 
@@ -224,13 +252,49 @@ This very basic example lets you compose a simple webapp setup with [`nginx`](ht
 For each service defined in the compose file, `singularity-compose-rs` generates a systemd unit file at `/etc/systemd/system/scompose-<service_name>.service`. The generated unit file uses a forking service type and starts the Singularity instance using:
 
 ```bash
-singularity instance start --pid-file <pidfile> <binds> <image> <service_name>
+/usr/bin/singularity instance start --pid-file <pidfile> <binds> <image> <service_name>
 ```
 
 When `build` is run, the tool validates the compose file, checks that the Singularity images exist and are absolute paths, and writes the unit files. After building, `systemctl daemon-reload` is run automatically.
 
 `up` starts and enables the generated unit files. `down` stops them.
 
-## License
 
-MIT
+# Tutorial
+
+In this tutorial, I will assume that `singularity-compose-rs` is aliased to `scompose`.
+
+## First services definitions
+
+For the first service definitions, you have a choice: either create a file named `/etc/singularity-compose-rs/compose.yaml`, or run `scompose add <path to an existing yaml file>`.
+
+Either way, you need to create a yaml file with at least one entry named `services`. Each service must be defined with the required keywords that are listed [here](#service-definition-keywords).
+You can also take a look at the [provided example file](#example-compose-file).
+
+If you directly wrote to `/etc/singularity-compose-rs/compose.yaml`, you can simply run `scompose build`. This will generate unit files in `/etc/systemd/system`, they will be named `scompose-{service_name}.service`.
+Otherwise, run `scompose add <path to an existing yaml file>`. This will generate the unit files just like `build` does.
+If the input file to `scompose add` redefines some services already listed in the original `/etc/singularity-compose-rs/compose.yaml` file, these services will be stopped, disabled, and their unit file deleted and re-created with the new definition.
+
+## Activate defined services
+
+Once you've run `scompose build`, to activate said services, run `scompose up`. To activate only one group of services, use the `-g/--groups` option, for instance: `scompose up web` will activate all services defined with the prefix `web` in their `service_group` field.
+So this would activate services with any of `web`, `web.essential`, and `web.optional` defined in their `service_group` field.
+
+# Troubleshooting
+
+## Service fails to start
+
+| Cause                                         | Solution                                                                                                                                                                                                                                   |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Specified user and group can't create PIDFile | Make sure that the specified user and group have write access to the parent of the specified pidfile                                                                                                                                       |
+| Dependency can't be satisfied                 | If you define services `A` and `B` in the compose file, and service `B` depends on service `A`, you should prefix `A` with `scompose` in the `requires` and `after` keys. That is, `requires: scompose-A` in the definition of service `B` |
+
+# Frequently Asked Questions
+
+## Why can't I choose the path to the compose file?
+
+The goal is to keep things simple and organized. On a given system, there should be only one place to define all the singularity based services. This is why the file `/etc/singularity-compose-rs/compose.yaml` is hard-coded.
+
+## Why are all the generated unit files prefixed with `scompose-`?
+
+So one can easily recognize where they come from, and either delete them if needed using `rm /etc/systemd/system/scompose-*`, or list them using `ls /etc/systemd/system/scompose*`, or stop all singularity-based services with `systemctl stop 'scompose-*'` (don't forget the single quotes).

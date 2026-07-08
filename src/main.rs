@@ -3,7 +3,6 @@ use std::{
     io::Write,
     os::unix::process::ExitStatusExt,
     path::{Path, PathBuf},
-    str::FromStr,
 };
 
 use anyhow::bail;
@@ -96,7 +95,7 @@ fn unit_files_from_services(
 ) -> anyhow::Result<()> {
     let mut unit_files: Vec<UnitFile> = Vec::new();
     for service in services {
-        let service_image = PathBuf::from_str(&service.image)?;
+        let service_image = Path::new(&service.image);
         if !service_image.exists() {
             bail!(
                 "Singularity image `{}` does not exist! No unit files written.",
@@ -334,9 +333,11 @@ fn compose_add(add_command: AddCommand, _jinja_env: Environment) -> anyhow::Resu
             "Warning: The following services' definitions changed and they will be stopped, disabled, and their unit files will be removed:"
         );
         for service in overwritten.iter() {
+            eprintln!("  - {}", service.service_name);
+        }
+        for service in overwritten.iter() {
             let unit_file_name = format!("scompose-{}.service", service.service_name);
             let unit_file_path = Path::new("/etc/systemd/system").join(&unit_file_name);
-            eprintln!("  - {}", service.service_name);
 
             let status = std::process::Command::new("systemctl")
                 .arg("stop")
@@ -381,6 +382,8 @@ fn compose_add(add_command: AddCommand, _jinja_env: Environment) -> anyhow::Resu
             _jinja_env,
             false,
         )?;
+    } else {
+        unit_files_from_services(&added, _jinja_env, false)?;
     }
 
     eprintln!(
