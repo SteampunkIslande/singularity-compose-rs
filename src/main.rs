@@ -304,13 +304,9 @@ fn compose_add(add_command: AddCommand, _jinja_env: Environment) -> anyhow::Resu
     };
     let input_doc = Document::try_from_file_path(&add_command.file)?;
 
-    let MergeResult {
-        unchanged,
-        added,
-        overwritten,
-    } = doc.merge_document(input_doc);
+    let merge_result = doc.merge_document(input_doc);
 
-    for service in &overwritten {
+    for service in &merge_result.overwritten {
         eprintln!(
             "Overwriting existing service since definition changed: `{}`",
             service.service_name
@@ -320,14 +316,13 @@ fn compose_add(add_command: AddCommand, _jinja_env: Environment) -> anyhow::Resu
     let file = File::create(definition_file)?;
 
     // Save to file
-    yaml_serde::to_writer(
-        file,
-        &Document::from(MergeResult {
-            unchanged: unchanged.clone(),
-            added: added.clone(),
-            overwritten: overwritten.clone(),
-        }),
-    )?;
+    yaml_serde::to_writer(file, &Document::from(merge_result.clone()))?;
+
+    let MergeResult {
+        unchanged,
+        added,
+        overwritten,
+    } = merge_result;
 
     if !overwritten.is_empty() {
         eprintln!(

@@ -25,6 +25,7 @@ pub struct Document {
     pub services: Vec<Service>,
 }
 
+#[derive(Debug, Default, Clone)]
 pub struct MergeResult {
     pub unchanged: Vec<Service>,
     pub added: Vec<Service>,
