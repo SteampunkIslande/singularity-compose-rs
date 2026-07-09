@@ -331,6 +331,7 @@ This merges the new definitions into `compose.yaml`, stops and re-creates unit f
 | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Specified user and group can't create PIDFile | Make sure that the specified user and group have write access to the parent of the specified pidfile                                                                                                                                       |
 | Dependency can't be satisfied                 | If you define services `A` and `B` in the compose file, and service `B` depends on service `A`, you should prefix `A` with `scompose` in the `requires` and `after` keys. That is, `requires: scompose-A` in the definition of service `B` |
+| Service is running but provides no features   | Make sure the singularity image defines a `startscript` and that the `startscript` runs the task you're trying to daemonize in the foreground.                                                                                             |
 
 # Frequently Asked Questions
 
