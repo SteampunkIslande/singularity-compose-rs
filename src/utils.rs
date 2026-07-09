@@ -3,6 +3,7 @@ use crate::{UnitFile, YAML_COMPOSE_DIR, datatypes};
 use anyhow::{Context, bail};
 use minijinja::{Environment, context};
 use std::collections::HashSet;
+use std::fmt::Debug;
 use std::fs::File;
 use std::io::Write;
 use std::os::unix::process::ExitStatusExt;
@@ -110,31 +111,8 @@ pub fn cleanup(definition_file: &Path, dry_run: bool) -> anyhow::Result<()> {
         for (path, name) in &orphans {
             eprintln!("Removing orphan service `{}`", name);
 
-            let status = std::process::Command::new("systemctl")
-                .arg("stop")
-                .arg(name)
-                .status()?;
-            match status.code() {
-                Some(code) if !status.success() => eprintln!(
-                    "Warning: `systemctl stop {}` exited with status code: {}",
-                    name, code
-                ),
-                None => eprintln!("Warning: `systemctl stop {}` terminated by signal", name),
-                _ => {}
-            }
-
-            let status = std::process::Command::new("systemctl")
-                .arg("disable")
-                .arg(name)
-                .status()?;
-            match status.code() {
-                Some(code) if !status.success() => eprintln!(
-                    "Warning: `systemctl disable {}` exited with status code: {}",
-                    name, code
-                ),
-                None => eprintln!("Warning: `systemctl disable {}` terminated by signal", name),
-                _ => {}
-            }
+            systemctl_run(&[&name], SystemdCommand::Stop, true, false)?;
+            systemctl_run(&[&name], SystemdCommand::Disable, true, false)?;
 
             if path.exists() {
                 std::fs::remove_file(path)?;
@@ -177,4 +155,86 @@ pub fn daemon_reload() -> anyhow::Result<()> {
         );
     }
     Ok(())
+}
+
+#[derive(PartialEq)]
+pub enum SystemdCommand {
+    Start,
+    Stop,
+    Enable,
+    Disable,
+}
+
+impl Debug for SystemdCommand {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Start => write!(f, "start")?,
+            Self::Stop => write!(f, "stop")?,
+            Self::Enable => write!(f, "enable")?,
+            Self::Disable => write!(f, "disable")?,
+        }
+        Ok(())
+    }
+}
+
+/// Utility function to call systemd start|stop|enable|disable
+pub fn systemctl_run<T: AsRef<str>>(
+    service_names: &[T],
+    systemd_command: SystemdCommand,
+    ignore_non_zero_status: bool,
+    dry_run: bool,
+) -> anyhow::Result<()> {
+    if service_names.is_empty() {
+        if dry_run {
+            eprintln!(
+                "Would not run systemctl {:?} with no arguments...",
+                systemd_command
+            );
+            return Ok(());
+        } else {
+            bail!(
+                "Not running systemctl {:?} with no arguments!",
+                systemd_command
+            );
+        }
+    }
+    let mut cmd = std::process::Command::new("systemctl");
+    cmd.arg(match systemd_command {
+        SystemdCommand::Start => "start",
+        SystemdCommand::Stop => "stop",
+        SystemdCommand::Enable => "enable",
+        SystemdCommand::Disable => "disable",
+    })
+    .args(
+        service_names
+            .iter()
+            .map(|s| String::from(s.as_ref()))
+            .collect::<Vec<String>>(),
+    );
+    let cmd_str = format!("{:?}", cmd).replace("\"", "");
+    if dry_run {
+        eprintln!("Would run: `{}`", cmd_str);
+        Ok(())
+    } else {
+        let status = cmd.status()?;
+        match (status.code(), status.signal()) {
+            (Some(code), _) if !status.success() => {
+                eprintln!("Process `{}` exited with status code: {}", cmd_str, code);
+                if !ignore_non_zero_status {
+                    bail!("Running ̀{}` failed, this is considered an error.", cmd_str);
+                }
+            }
+            (Some(_), _) => eprintln!(
+                "Successfully activated services {}.",
+                service_names
+                    .iter()
+                    .map(|s| String::from(s.as_ref()))
+                    .collect::<Vec<String>>()
+                    .join(" ")
+            ),
+            (None, Some(signal)) => eprintln!("Process terminated by signal {}.", signal),
+            (None, None) => eprintln!("Should be unreachable..."),
+        }
+        Ok(())
+    }
 }

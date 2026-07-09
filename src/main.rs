@@ -1,6 +1,5 @@
 use std::{
     fs::File,
-    os::unix::process::ExitStatusExt,
     path::{Path, PathBuf},
 };
 
@@ -38,58 +37,33 @@ fn compose_up(up_command: UpCommand, _jinja_env: Environment) -> anyhow::Result<
         .iter()
         .map(|s| format!("scompose-{}.service", s.service_name))
         .collect();
-    if up_command.dry_run {
-        eprintln!("Below are the commands that would be run.");
-        eprintln!(
-            "First, start.\nWould call `systemctl start {}`",
-            service_names.join(" ")
+
+    if !service_names
+        .iter()
+        .all(|service_name| Path::new("/etc/systemd/system").join(service_name).exists())
+    {
+        bail!(
+            "Cannot activate required services:\n{}\nSome files are missing. Please run `scompose build` to update service files.",
+            services
+                .iter()
+                .map(|s| format!("- `{}`", s.service_name.as_str()))
+                .collect::<Vec<_>>()
+                .join("\n")
         );
-        eprintln!(
-            "Then, enable.\nWould call `systemctl enable {}`",
-            service_names.join(" ")
-        )
-    } else {
-        if !service_names
-            .iter()
-            .all(|service_name| Path::new("/etc/systemd/system").join(service_name).exists())
-        {
-            bail!(
-                "Cannot activate required services:\n{}\nSome files are missing. Please run `scompose build` to update service files.",
-                services
-                    .iter()
-                    .map(|s| format!("- `{}`", s.service_name.as_str()))
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            );
-        }
-        let status = std::process::Command::new("systemctl")
-            .arg("start")
-            .args(&service_names)
-            .status()?;
-        match status.code() {
-            Some(code) if !status.success() => eprintln!(
-                "Process `systemctl start {}` exited with status code: {code}",
-                service_names.join(" ")
-            ),
-            Some(_) => eprintln!("Successfully activated services."),
-            None => eprintln!(
-                "Process terminated by signal {}.",
-                status.signal().unwrap_or(-1)
-            ),
-        }
-        let status = std::process::Command::new("systemctl")
-            .arg("enable")
-            .args(&service_names)
-            .status()?;
-        match status.code() {
-            Some(code) if !status.success() => eprintln!(
-                "Process `systemctl enable {}` exited with status code: {code}",
-                service_names.join(" ")
-            ),
-            Some(_) => eprintln!("Successfully enabled services."),
-            None => eprintln!("Process terminated by signal"),
-        }
     }
+    systemctl_run(
+        &service_names,
+        SystemdCommand::Start,
+        true,
+        up_command.dry_run,
+    )?;
+    systemctl_run(
+        &service_names,
+        SystemdCommand::Enable,
+        true,
+        up_command.dry_run,
+    )?;
+
     Ok(())
 }
 
@@ -115,29 +89,16 @@ fn compose_down(down_command: DownCommand, _jinja_env: Environment) -> anyhow::R
     let doc: Document = datatypes::Document::try_from_file_path(definition_file)?;
 
     let services = doc.services_for_groups(&down_command.groups);
-    let service_names: Vec<String> = services
+    let service_names: Vec<_> = services
         .iter()
-        .map(|s| format!("scompose-{}.service", s.service_name))
+        .map(|s| format!("scompose-{}", s.service_name))
         .collect();
-    if down_command.dry_run {
-        eprintln!(
-            "This would call `systemctl stop {}`",
-            service_names.join(" ")
-        );
-    } else {
-        let status = std::process::Command::new("systemctl")
-            .arg("stop")
-            .args(&service_names)
-            .status()?;
-        match status.code() {
-            Some(code) if !status.success() => eprintln!(
-                "Process `systemctl stop {}` exited with status code: {code}",
-                service_names.join(" ")
-            ),
-            Some(_) => eprintln!("Successfully stopped services."),
-            None => eprintln!("Process terminated by signal"),
-        }
-    }
+    systemctl_run(
+        &service_names,
+        SystemdCommand::Stop,
+        false,
+        down_command.dry_run,
+    )?;
     Ok(())
 }
 
@@ -286,37 +247,8 @@ fn compose_add(add_command: AddCommand, _jinja_env: Environment) -> anyhow::Resu
             let unit_file_name = format!("scompose-{}.service", service.service_name);
             let unit_file_path = Path::new("/etc/systemd/system").join(&unit_file_name);
 
-            let status = std::process::Command::new("systemctl")
-                .arg("stop")
-                .arg(&unit_file_name)
-                .status()?;
-            match status.code() {
-                Some(code) if !status.success() => eprintln!(
-                    "Warning: `systemctl stop {}` exited with status code: {}",
-                    unit_file_name, code
-                ),
-                None => eprintln!(
-                    "Warning: `systemctl stop {}` terminated by signal",
-                    unit_file_name
-                ),
-                _ => {}
-            }
-
-            let status = std::process::Command::new("systemctl")
-                .arg("disable")
-                .arg(&unit_file_name)
-                .status()?;
-            match status.code() {
-                Some(code) if !status.success() => eprintln!(
-                    "Warning: `systemctl disable {}` exited with status code: {}",
-                    unit_file_name, code
-                ),
-                None => eprintln!(
-                    "Warning: `systemctl disable {}` terminated by signal",
-                    unit_file_name
-                ),
-                _ => {}
-            }
+            systemctl_run(&[&unit_file_name], SystemdCommand::Stop, true, false)?;
+            systemctl_run(&[&unit_file_name], SystemdCommand::Disable, true, false)?;
 
             if unit_file_path.exists() {
                 std::fs::remove_file(&unit_file_path)?;
@@ -360,37 +292,8 @@ fn compose_remove(remove_command: RemoveCommand, _jinja_env: Environment) -> any
         let unit_file_path = Path::new("/etc/systemd/system").join(&unit_file_name);
         eprintln!("Removing service `{}`", service.service_name);
 
-        let status = std::process::Command::new("systemctl")
-            .arg("stop")
-            .arg(&unit_file_name)
-            .status()?;
-        match status.code() {
-            Some(code) if !status.success() => eprintln!(
-                "Warning: `systemctl stop {}` exited with status code: {}",
-                unit_file_name, code
-            ),
-            None => eprintln!(
-                "Warning: `systemctl stop {}` terminated by signal",
-                unit_file_name
-            ),
-            _ => {}
-        }
-
-        let status = std::process::Command::new("systemctl")
-            .arg("disable")
-            .arg(&unit_file_name)
-            .status()?;
-        match status.code() {
-            Some(code) if !status.success() => eprintln!(
-                "Warning: `systemctl disable {}` exited with status code: {}",
-                unit_file_name, code
-            ),
-            None => eprintln!(
-                "Warning: `systemctl disable {}` terminated by signal",
-                unit_file_name
-            ),
-            _ => {}
-        }
+        systemctl_run(&[&unit_file_name], SystemdCommand::Stop, true, false)?;
+        systemctl_run(&[&unit_file_name], SystemdCommand::Disable, true, false)?;
 
         if unit_file_path.exists() {
             std::fs::remove_file(&unit_file_path)?;
