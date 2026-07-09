@@ -79,7 +79,7 @@ fn compose_build(build_command: BuildCommand, jinja_env: Environment) -> anyhow:
         build_command.dry_run,
     )?;
     // When building, we only generate new unit_files from services. But some unit files might be absent from `/etc/singularity-compose-rs/compose.yaml`. These files must be cleaned up.
-    cleanup(&definition_file, build_command.dry_run)?;
+    cleanup(definition_file, build_command.dry_run)?;
     daemon_reload()?;
 
     Ok(())
@@ -317,7 +317,7 @@ fn compose_remove(remove_command: RemoveCommand, _jinja_env: Environment) -> any
 /// Entry point function to remove any orphan service. This is somehow redundant with the `build` command, except this one only removes orphan service files without generating new ones.
 fn compose_clean() -> anyhow::Result<()> {
     let definition_file = Path::new(YAML_COMPOSE_FILE);
-    cleanup(&definition_file, false)?;
+    cleanup(definition_file, false)?;
     daemon_reload()?;
     Ok(())
 }
@@ -369,7 +369,7 @@ fn service_creation_wizard(jinja_env: Environment) -> anyhow::Result<()> {
                     None => None,
                 }
             };
-            let ro = inquire::prompt_confirmation(&format!(
+            let ro = inquire::prompt_confirmation(format!(
                 "Do you want this bind ({}) to be read-only?",
                 host_p
             ))?;
@@ -377,7 +377,7 @@ fn service_creation_wizard(jinja_env: Environment) -> anyhow::Result<()> {
                 (host_p, Some(container_p), true) => format!("{host_p}:{container_p}:ro"),
                 (host_p, Some(container_p), false) => format!("{host_p}:{container_p}"),
                 (host_p, None, true) => format!("{host_p}:{host_p}:ro"),
-                (host_p, None, false) => format!("{host_p}"),
+                (host_p, None, false) => host_p.to_string(),
             })
         } else {
             break;
@@ -389,7 +389,7 @@ fn service_creation_wizard(jinja_env: Environment) -> anyhow::Result<()> {
         volumes.len(),
         service_name
     );
-    let pidfile = inquire::Text::new(&format!("Please provide a path for the PIDFile.\nPath should not exist when service is not running, and the parent of the given path should be writable by user {}, group {}",user.as_deref().unwrap_or("root".into()),group.as_deref().unwrap_or("root".into()))).prompt_skippable()?;
+    let pidfile = inquire::Text::new(&format!("Please provide a path for the PIDFile.\nPath should not exist when service is not running, and the parent of the given path should be writable by user {}, group {}",user.as_deref().unwrap_or("root"),group.as_deref().unwrap_or("root"))).prompt_skippable()?;
 
     let image = Path::new(&inquire::Text::new("Please provide a path to the singularity image that will run as a service.\nPlease make sure it has been built with a `%startscript` and that the startscript runs in the foreground!").with_validator(validate_path).with_validator(validate_sif_file).with_autocomplete(FilePathCompleter::default()).prompt()?).canonicalize()?.display().to_string();
 
@@ -408,17 +408,13 @@ fn service_creation_wizard(jinja_env: Environment) -> anyhow::Result<()> {
     .prompt_skippable()?
     .map(String::from);
 
-    let after = inquire::Text::new(&format!(
-        "Please enter the names of the services that this one should be run after (space-separated). You can press escape to skip this part"
-    ))
-    .prompt_skippable()?.map(|s|if s.is_empty(){None}else{Some(s)}).flatten();
+    let after = inquire::Text::new(&"Please enter the names of the services that this one should be run after (space-separated). You can press escape to skip this part".to_string())
+    .prompt_skippable()?.and_then(|s|if s.is_empty(){None}else{Some(s)});
 
-    let requires = inquire::Text::new(&format!(
-        "Please enter the names of the services that this one actually requires (space-separated). You can press escape to skip this part"
-    ))
-    .prompt_skippable()?.map(|s|if s.is_empty(){None}else{Some(s)}).flatten();
+    let requires = inquire::Text::new(&"Please enter the names of the services that this one actually requires (space-separated). You can press escape to skip this part".to_string())
+    .prompt_skippable()?.and_then(|s|if s.is_empty(){None}else{Some(s)});
 
-    let service_group = inquire::Text::new(&format!("Please enter the name of the group hierarchy this service should be part of (hierarchy is dot-separated)")).prompt_skippable()?;
+    let service_group = inquire::Text::new(&"Please enter the name of the group hierarchy this service should be part of (hierarchy is dot-separated)".to_string()).prompt_skippable()?;
     let service_name_clone = service_name.clone();
 
     let service = Service {
