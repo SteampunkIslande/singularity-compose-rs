@@ -1,4 +1,5 @@
 use std::{
+    env,
     fs::File,
     path::{Path, PathBuf},
 };
@@ -6,6 +7,7 @@ use std::{
 use anyhow::bail;
 use clap::Parser;
 
+use inquire::validator::MaxLengthValidator;
 use is_root::is_root;
 
 use minijinja::Environment;
@@ -320,15 +322,154 @@ fn compose_clean() -> anyhow::Result<()> {
     Ok(())
 }
 
+fn service_creation_wizard(jinja_env: Environment) -> anyhow::Result<()> {
+    // Prompts the user for informations about the service, then adds it to `/etc/singularity-compose-rs/compose.yaml`, then builds the unit file.
+    println!(
+        "Welcome to the service creation wizard. This wizard will guide you through the definition of singularity instances as Linux services."
+    );
+    let service_name = inquire::Text::new("Please enter a name for the new service:")
+        .with_validator(validate_service_name)
+        .prompt()?;
+    let description = inquire::Text::new(
+        "Please enter a description for this service (144 characters maximum, press ESC to skip):",
+    )
+    .with_validator(MaxLengthValidator::new(144))
+    .prompt_skippable()?;
+    let user =
+        inquire::Text::new("Please choose the name of the user this service should be run by:")
+            .with_default("root")
+            .with_validator(validate_user_name)
+            .prompt_skippable()?;
+    let group =
+        inquire::Text::new("Please choose the name of the group this service should be run by:")
+            .with_default("root")
+            .with_validator(validate_group_name)
+            .prompt_skippable()?;
+    // println!("You will now be prompted for bind volumes. First question will ask for a path on the host (either file or directory), second will ask for a path in the container (leave empty if you want it to be the same), and third will ask if you want this volume to be read-only.")
+    let mut volumes: Vec<String> = Vec::new();
+    loop {
+        if inquire::Confirm::new(&format!(
+            "Do you want to add a volume mount ? You defined {} binds so far.",
+            volumes.len()
+        ))
+        .with_default(false)
+        .prompt_skippable()?
+        .is_some_and(|b| b)
+        {
+            let host_p =
+                inquire::Text::new("Please enter a path on the host (either file or directory)")
+                    .with_autocomplete(FilePathCompleter::default())
+                    .with_validator(validate_path)
+                    .prompt()?;
+            let container_p = {
+                let p = inquire::Text::new(&format!("Please enter a path inside the container that `{}` on the host should bind to (leave empty or press ESC if you want it to be the same)",host_p)).prompt_skippable()?;
+                match p {
+                    Some(p) if !p.is_empty() => Some(p),
+                    Some(_) => None,
+                    None => None,
+                }
+            };
+            let ro = inquire::prompt_confirmation(&format!(
+                "Do you want this bind ({}) to be read-only?",
+                host_p
+            ))?;
+            volumes.push(match (host_p, container_p, ro) {
+                (host_p, Some(container_p), true) => format!("{host_p}:{container_p}:ro"),
+                (host_p, Some(container_p), false) => format!("{host_p}:{container_p}"),
+                (host_p, None, true) => format!("{host_p}:{host_p}:ro"),
+                (host_p, None, false) => format!("{host_p}"),
+            })
+        } else {
+            break;
+        }
+        inquire::Text::new("Please choose a ").prompt()?;
+    }
+    println!(
+        "{} binds will be defined for service {}. Please note that these don't include default binds defined in `/etc/singularity/singularity.conf`",
+        volumes.len(),
+        service_name
+    );
+    let pidfile = inquire::Text::new(&format!("Please provide a path for the PIDFile.\nPath should not exist when service is not running, and the parent of the given path should be writable by user {}, group {}",user.as_deref().unwrap_or("root".into()),group.as_deref().unwrap_or("root".into()))).prompt_skippable()?;
+
+    let image = Path::new(&inquire::Text::new("Please provide a path to the singularity image that will run as a service.\nPlease make sure it has been built with a `%startscript` and that the startscript runs in the foreground!").with_validator(validate_path).with_validator(validate_sif_file).with_autocomplete(FilePathCompleter::default()).prompt()?).canonicalize()?.display().to_string();
+
+    let restart = inquire::Select::new(
+        "Please choose one of the following reasons your service should restart:",
+        vec![
+            "always",
+            "no",
+            "on-success",
+            "on-failure",
+            "on-abnormal",
+            "on-abort",
+            "on-watchdog",
+        ],
+    )
+    .prompt_skippable()?
+    .map(String::from);
+
+    let after = inquire::Text::new(&format!(
+        "Please enter the names of the services that this one should be run after (space-separated). You can press escape to skip this part"
+    ))
+    .prompt_skippable()?.map(|s|if s.is_empty(){None}else{Some(s)}).flatten();
+
+    let requires = inquire::Text::new(&format!(
+        "Please enter the names of the services that this one actually requires (space-separated). You can press escape to skip this part"
+    ))
+    .prompt_skippable()?.map(|s|if s.is_empty(){None}else{Some(s)}).flatten();
+
+    let service_group = inquire::Text::new(&format!("Please enter the name of the group hierarchy this service should be part of (hierarchy is dot-separated)")).prompt_skippable()?;
+    let service_name_clone = service_name.clone();
+
+    let service = Service {
+        service_name,
+        description,
+        user,
+        group,
+        volumes,
+        pidfile,
+        image,
+        restart,
+        after,
+        requires,
+        service_group,
+    };
+
+    let definition_file = Path::new(YAML_COMPOSE_FILE);
+    let mut doc: Document = datatypes::Document::try_from_file_path(definition_file)?;
+    doc.services.push(service);
+
+    unit_files_from_services(&doc.services, jinja_env, false)?;
+    daemon_reload()?;
+
+    // Save to file!
+    let file = File::create(definition_file)?;
+    yaml_serde::to_writer(file, &doc)?;
+
+    println!(
+        "Successfully created new service `{0}`!\nYou can run `systemctl start scompose-{0} && systemctl enable scompose-{0}` to start and enable it",
+        service_name_clone
+    );
+    Ok(())
+}
+
 fn main() -> anyhow::Result<()> {
-    let cli = Cli::parse();
-
     let mut jinja_env = Environment::new();
-
     jinja_env.set_undefined_behavior(minijinja::UndefinedBehavior::SemiStrict);
 
     let service_template_str = String::from_utf8(include_bytes!("service_template.j2").to_vec())?;
     jinja_env.add_template("service_template.j2", &service_template_str)?;
+
+    if env::args().len() <= 1 {
+        // Run the service creation wizard
+        if !is_root() {
+            bail!("You must be root to create a service!");
+        }
+        service_creation_wizard(jinja_env)?;
+        return Ok(());
+    }
+
+    let cli = Cli::parse();
 
     match cli.command {
         ComposeSubcommand::Down(down_command) => {
