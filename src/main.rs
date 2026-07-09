@@ -408,13 +408,13 @@ fn service_creation_wizard(jinja_env: Environment) -> anyhow::Result<()> {
     .prompt_skippable()?
     .map(String::from);
 
-    let after = inquire::Text::new(&"Please enter the names of the services that this one should be run after (space-separated). You can press escape to skip this part".to_string())
+    let after = inquire::Text::new("Please enter the names of the services that this one should be run after (space-separated). You can press escape to skip this part")
     .prompt_skippable()?.and_then(|s|if s.is_empty(){None}else{Some(s)});
 
-    let requires = inquire::Text::new(&"Please enter the names of the services that this one actually requires (space-separated). You can press escape to skip this part".to_string())
+    let requires = inquire::Text::new("Please enter the names of the services that this one actually requires (space-separated). You can press escape to skip this part")
     .prompt_skippable()?.and_then(|s|if s.is_empty(){None}else{Some(s)});
 
-    let service_group = inquire::Text::new(&"Please enter the name of the group hierarchy this service should be part of (hierarchy is dot-separated)".to_string()).prompt_skippable()?;
+    let service_group = inquire::Text::new("Please enter the name of the group hierarchy this service should be part of (hierarchy is dot-separated)").prompt_skippable()?;
     let service_name_clone = service_name.clone();
 
     let service = Service {
