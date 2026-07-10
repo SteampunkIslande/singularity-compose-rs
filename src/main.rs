@@ -73,14 +73,63 @@ fn compose_up(up_command: UpCommand, _jinja_env: Environment) -> anyhow::Result<
 fn compose_build(build_command: BuildCommand, jinja_env: Environment) -> anyhow::Result<()> {
     let definition_file = Path::new(YAML_COMPOSE_FILE);
     let doc: Document = datatypes::Document::try_from_file_path(definition_file)?;
-    unit_files_from_services(
-        doc.services_for_groups(&build_command.groups).as_slice(),
-        jinja_env,
-        build_command.dry_run,
-    )?;
-    // When building, we only generate new unit_files from services. But some unit files might be absent from `/etc/singularity-compose-rs/compose.yaml`. These files must be cleaned up.
-    cleanup(definition_file, build_command.dry_run)?;
+    let services = doc.services_for_groups(&build_command.groups);
+
+    let unit_files = utils::render_unit_files(&services, jinja_env)?;
+    let dry_run = build_command.dry_run;
+
+    // Detect services that are being overwritten, i.e. whose currently deployed unit file
+    // differs from the freshly rendered one. Just like the `add` command, those must be
+    // cleanly stopped, disabled and removed before their unit file is regenerated.
+    let mut overwritten: Vec<String> = Vec::new();
+    for unit_file in &unit_files {
+        let is_overwritten = std::fs::read_to_string(&unit_file.file_name)
+            .map(|existing| existing != unit_file.file_content)
+            .unwrap_or(false);
+        if !is_overwritten {
+            continue;
+        }
+        let service_name = unit_file.file_name.file_name().map(|name| {
+            name.to_string_lossy()
+                .trim_start_matches("scompose-")
+                .trim_end_matches(".service")
+                .to_string()
+        });
+        let Some(service_name) = service_name else {
+            continue;
+        };
+        eprintln!(
+            "Service `{}` definition changed, regenerating its unit file.",
+            service_name
+        );
+        let unit_file_name = format!("scompose-{}.service", service_name);
+        if dry_run {
+            eprintln!(
+                "Would stop, disable and remove overwritten unit file `{}`",
+                unit_file_name
+            );
+        } else {
+            systemctl_run(&[&unit_file_name], SystemdCommand::Stop, true, false)?;
+            systemctl_run(&[&unit_file_name], SystemdCommand::Disable, true, false)?;
+            if unit_file.file_name.exists() {
+                std::fs::remove_file(&unit_file.file_name)?;
+                eprintln!("Removed unit file: {}", unit_file.file_name.display());
+            }
+        }
+        overwritten.push(service_name);
+    }
+
+    utils::write_unit_files(unit_files, dry_run)?;
+    // When building, we only generate new unit files from services. But some unit files might be absent from `/etc/singularity-compose-rs/compose.yaml`. These files must be cleaned up.
+    cleanup(definition_file, dry_run)?;
     daemon_reload()?;
+
+    if !overwritten.is_empty() {
+        eprintln!(
+            "{} service(s) were stopped, disabled and overwritten. You may want to run `scompose up` to restart them.",
+            overwritten.len()
+        );
+    }
 
     Ok(())
 }

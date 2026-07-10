@@ -23,12 +23,15 @@ pub fn ensure_etc_exists() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Utility function to (over)write unit files from a list of services
-pub fn unit_files_from_services(
+/// Renders the unit file content for the given services without writing anything to disk.
+///
+/// Performs the same validation as `unit_files_from_services` (bailing early if an image is
+/// missing or not absolute) and returns the rendered [`UnitFile`]s so callers can inspect them,
+/// e.g. to detect which services would overwrite an existing (different) unit file.
+pub fn render_unit_files(
     services: &[Service],
     jinja_env: Environment,
-    dry_run: bool,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Vec<UnitFile>> {
     let mut unit_files: Vec<UnitFile> = Vec::new();
     for service in services {
         let service_image = Path::new(&service.image);
@@ -65,6 +68,21 @@ pub fn unit_files_from_services(
             file_content: unit_file_content,
         });
     }
+    Ok(unit_files)
+}
+
+/// Utility function to (over)write unit files from a list of services
+pub fn unit_files_from_services(
+    services: &[Service],
+    jinja_env: Environment,
+    dry_run: bool,
+) -> anyhow::Result<()> {
+    let unit_files = render_unit_files(services, jinja_env)?;
+    write_unit_files(unit_files, dry_run)
+}
+
+/// Utility function to write pre-rendered unit files to disk (unless `dry_run`)
+pub fn write_unit_files(unit_files: Vec<UnitFile>, dry_run: bool) -> anyhow::Result<()> {
     if dry_run {
         eprintln!("Below is what the generated unit files would look like.");
         for unit_file in unit_files.iter() {
