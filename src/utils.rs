@@ -7,7 +7,7 @@ use inquire::autocompletion::Replacement;
 use inquire::validator::Validation::{self};
 use inquire::{Autocomplete, CustomUserError};
 use minijinja::{Environment, context};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::fs::File;
 use std::io::{ErrorKind, Write};
@@ -266,6 +266,78 @@ pub fn systemctl_run<T: AsRef<str>>(
         }
         Ok(())
     }
+}
+
+/// State of a systemd unit, as reported by `systemctl list-units`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct UnitState {
+    pub load: String,
+    pub active: String,
+    pub sub: String,
+}
+
+impl UnitState {
+    /// A short human-readable summary of the unit state, e.g. `loaded/active/running`.
+    pub fn summary(&self) -> String {
+        format!("{}/{}/{}", self.load, self.active, self.sub)
+    }
+}
+
+/// Runs `systemctl list-units --no-pager --plain --no-legend --type=service 'scompose-*'`
+/// and parses its output into a map keyed by service name (without the `scompose-` prefix
+/// and the `.service` suffix, so it matches [`datatypes::Service::service_name`]).
+///
+/// Returns an empty map when systemd reports no matching unit (which systemctl signals with a
+/// non-zero exit status), so callers can simply treat a missing entry as "not loaded yet".
+pub fn query_scompose_unit_states() -> anyhow::Result<HashMap<String, UnitState>> {
+    let output = std::process::Command::new("systemctl")
+        .args([
+            "list-units",
+            "--no-pager",
+            "--plain",
+            "--no-legend",
+            "--type=service",
+            "scompose-*",
+        ])
+        .output()?;
+
+    let mut states: HashMap<String, UnitState> = HashMap::new();
+
+    // `systemctl list-units` exits 1 (not an error for us) when the glob matches no unit.
+    if !output.status.success() {
+        return Ok(states);
+    }
+
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let mut parts = line.split_whitespace();
+        let Some(unit) = parts.next() else {
+            continue;
+        };
+        let load = parts.next().unwrap_or("").to_string();
+        let active = parts.next().unwrap_or("").to_string();
+        let sub = parts.next().unwrap_or("").to_string();
+
+        let name = unit
+            .trim_end_matches(".service")
+            .strip_prefix("scompose-")
+            .unwrap_or(unit)
+            .to_string();
+
+        states.insert(
+            name,
+            UnitState {
+                load,
+                active,
+                sub,
+            },
+        );
+    }
+
+    Ok(states)
 }
 
 pub fn validate_service_name(name: &str) -> Result<Validation, inquire::error::CustomUserError> {

@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeMap,
     env,
     fs::File,
     path::{Path, PathBuf},
@@ -6,6 +7,7 @@ use std::{
 
 use anyhow::bail;
 use clap::Parser;
+use colored::{Color, Colorize};
 
 use inquire::validator::MaxLengthValidator;
 use is_root::is_root;
@@ -168,22 +170,32 @@ fn compose_list(list_command: ListCommand, _jinja_env: Environment) -> anyhow::R
         return Ok(());
     }
 
-    #[derive(Debug, Clone)]
-    struct GroupTreeNode {
-        sub_groups: std::collections::BTreeMap<String, GroupTreeNode>,
-        services: Vec<String>,
+    let states = utils::query_scompose_unit_states()?;
+
+    #[derive(Debug, Clone, Default)]
+    struct ServiceNode {
+        name: String,
+        state: Option<utils::UnitState>,
     }
 
-    impl GroupTreeNode {
-        fn new() -> Self {
+    #[derive(Debug, Default)]
+    struct GroupNode {
+        name: String,
+        sub_groups: BTreeMap<String, GroupNode>,
+        services: Vec<ServiceNode>,
+    }
+
+    impl GroupNode {
+        fn new(name: String) -> Self {
             Self {
-                sub_groups: std::collections::BTreeMap::new(),
+                name,
+                sub_groups: BTreeMap::new(),
                 services: Vec::new(),
             }
         }
     }
 
-    fn insert_service(tree: &mut GroupTreeNode, parts: &[&str], service_name: String) {
+    fn insert_service(tree: &mut GroupNode, parts: &[&str], node: ServiceNode) {
         if parts.is_empty() {
             return;
         }
@@ -192,63 +204,79 @@ fn compose_list(list_command: ListCommand, _jinja_env: Environment) -> anyhow::R
         let entry = tree
             .sub_groups
             .entry(first[0].to_string())
-            .or_insert_with(GroupTreeNode::new);
+            .or_insert_with(|| GroupNode::new(first[0].to_string()));
         if rest.is_empty() {
-            entry.services.push(service_name);
+            entry.services.push(node);
         } else {
-            insert_service(entry, rest, service_name);
+            insert_service(entry, rest, node);
         }
     }
 
-    fn build_treenodes(tree: &GroupTreeNode) -> Vec<text_trees::StringTreeNode> {
-        let mut nodes = Vec::new();
-        for (name, node) in &tree.sub_groups {
-            let mut children: Vec<text_trees::StringTreeNode> = Vec::new();
-            for svc in &node.services {
-                children.push(text_trees::StringTreeNode::new(svc.clone()));
-            }
-            for child in build_treenodes(node) {
-                children.push(child);
-            }
-            children.sort_by_key(|a| a.label());
-            nodes.push(text_trees::StringTreeNode::with_child_nodes(
-                name.clone(),
-                children.into_iter(),
-            ));
-        }
-        nodes
-    }
-
-    let mut groups_tree = GroupTreeNode::new();
-    let mut no_group_services: Vec<String> = Vec::new();
-
-    for service in services {
+    let mut root = GroupNode::new("all services".to_string());
+    for service in &services {
+        let node = ServiceNode {
+            name: service.service_name.clone(),
+            state: states.get(&service.service_name).cloned(),
+        };
         if let Some(group) = &service.service_group {
             let parts: Vec<&str> = group.split('.').collect();
-            insert_service(&mut groups_tree, &parts, service.service_name.clone());
+            insert_service(&mut root, &parts, node);
         } else {
-            no_group_services.push(service.service_name.clone());
+            root.services.push(node);
         }
     }
 
-    let mut all_children: Vec<text_trees::StringTreeNode> = Vec::new();
-    for node in build_treenodes(&groups_tree) {
-        all_children.push(node);
+    // Color a service node according to its systemd state.
+    fn color_service(node: &ServiceNode) -> String {
+        let state = match &node.state {
+            None => "not loaded".to_string(),
+            Some(state) => state.summary(),
+        };
+        let color = match &node.state {
+            None => Color::BrightBlack,
+            Some(state) => match state.active.as_str() {
+                "active" => Color::Green,
+                "inactive" => Color::Yellow,
+                "failed" => Color::Red,
+                _ => Color::White,
+            },
+        };
+        format!(
+            "{}  [{}]",
+            node.name.color(color).bold(),
+            state.color(color)
+        )
     }
-    for svc in no_group_services {
-        all_children.push(text_trees::StringTreeNode::new(svc));
+
+    // Renders the children of `group` (sub-groups first, then services) with proper
+    // box-drawing connectors. The group's own name is printed by its parent loop (or the
+    // caller for the root), so this function only draws descendants.
+    fn render_group(group: &GroupNode, prefix: &str) {
+        let mut child_groups: Vec<&GroupNode> = group.sub_groups.values().collect();
+        child_groups.sort_by_key(|g| &g.name);
+        let mut child_services = group.services.clone();
+        child_services.sort_by(|a, b| a.name.cmp(&b.name));
+
+        let total = child_groups.len() + child_services.len();
+        let mut index = 0;
+        for child in child_groups {
+            index += 1;
+            let last = index == total;
+            let connector = if last { "└── " } else { "├── " };
+            println!("{}{}{}", prefix, connector, child.name.bold());
+            let child_prefix = format!("{}{}", prefix, if last { "    " } else { "│   " });
+            render_group(child, &child_prefix);
+        }
+        for service in &child_services {
+            index += 1;
+            let last = index == total;
+            let connector = if last { "└── " } else { "├── " };
+            println!("{}{}{}", prefix, connector, color_service(service));
+        }
     }
-    all_children.sort_by_key(|a| a.label());
 
-    let root = text_trees::StringTreeNode::with_child_nodes(
-        "all services".to_string(),
-        all_children.into_iter(),
-    );
-
-    let output = root.to_string_with_format(&text_trees::TreeFormatting::dir_tree(
-        text_trees::FormatCharacters::box_chars(),
-    ))?;
-    println!("{}", output);
+    println!("{}", root.name.bold());
+    render_group(&root, "");
 
     Ok(())
 }
