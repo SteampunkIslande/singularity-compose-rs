@@ -280,27 +280,47 @@ pub fn validate_service_name(name: &str) -> Result<Validation, inquire::error::C
 }
 
 pub fn validate_user_name(name: &str) -> Result<Validation, inquire::error::CustomUserError> {
-    match sysinfo::Users::new()
+    match sysinfo::Users::new_with_refreshed_list()
         .list()
         .iter()
         .find(|u| u.name() == name)
     {
         Some(_) => Ok(Validation::Valid),
         None => Ok(Validation::Invalid(
-            format!("User {} does not exist!", name).into(),
+            format!(
+                "User {} does not exist! Available users: {}",
+                name,
+                sysinfo::Users::new_with_refreshed_list()
+                    .list()
+                    .iter()
+                    .map(|u| u.name())
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            )
+            .into(),
         )),
     }
 }
 
 pub fn validate_group_name(name: &str) -> Result<Validation, CustomUserError> {
-    match sysinfo::Groups::new()
+    match sysinfo::Groups::new_with_refreshed_list()
         .list()
         .iter()
         .find(|g| g.name() == name)
     {
         Some(_) => Ok(Validation::Valid),
         None => Ok(Validation::Invalid(
-            format!("Group {} does not exist!", name).into(),
+            format!(
+                "Group {} does not exist! Available users: {}",
+                name,
+                sysinfo::Groups::new_with_refreshed_list()
+                    .list()
+                    .iter()
+                    .map(|g| g.name())
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            )
+            .into(),
         )),
     }
 }
