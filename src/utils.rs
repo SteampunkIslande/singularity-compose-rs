@@ -287,17 +287,7 @@ pub fn validate_user_name(name: &str) -> Result<Validation, inquire::error::Cust
     {
         Some(_) => Ok(Validation::Valid),
         None => Ok(Validation::Invalid(
-            format!(
-                "User {} does not exist! Available users: {}",
-                name,
-                sysinfo::Users::new_with_refreshed_list()
-                    .list()
-                    .iter()
-                    .map(|u| u.name())
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            )
-            .into(),
+            format!("User {} does not exist!", name,).into(),
         )),
     }
 }
@@ -310,17 +300,7 @@ pub fn validate_group_name(name: &str) -> Result<Validation, CustomUserError> {
     {
         Some(_) => Ok(Validation::Valid),
         None => Ok(Validation::Invalid(
-            format!(
-                "Group {} does not exist! Available users: {}",
-                name,
-                sysinfo::Groups::new_with_refreshed_list()
-                    .list()
-                    .iter()
-                    .map(|g| g.name())
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            )
-            .into(),
+            format!("Group {} does not exist!", name,).into(),
         )),
     }
 }
