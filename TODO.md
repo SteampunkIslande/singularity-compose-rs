@@ -4,5 +4,5 @@
 - [X] Ajouter un mode interactif via une commande `new` avec un assistant de définition de service. Une fois le service créé, si l'assistant est allé à terme, les fonctions `unit_files_from_services` et `daemon_reload` sont appelées.
 - [X] Pour la commande `list`, afficher les états des différents services concernés. Peut-être pas essentiel, à voir le format exact.
 - [ ] Ajouter une commande `cancel`. Principe de fonctionnement: chaque commande qui modifie `/etc/singularity-compose-rs/compose.yaml` génère un fichier `/etc/singularity-compose-rs/compose.yaml.bak` à partir de la dernière version du fichier. Ainsi, il est toujours possible de revenir en arrière (d'une seule commande) simplement en renommant le fichier `.yaml.bak` en `.yaml`. Donc `cancel` est un alias pour `mv /etc/singularity-compose-rs/compose.yaml.bak /etc/singularity-compose-rs/compose.yaml`. Une fois renommé, la commande `cancel` appelle aussi `unit_files_from_services`, puis `cleanup`, et enfin `daemon_reload`.
-- [ ] Vérifier que la liste des services à démarrer/arrêter/activer/désactiver n'est pas vide avant d'invoquer `systemctl`
-- [ ] Diminuer la charge de parsing (`cleanup` reparse le fichier YAML, alors qu'au moins une partie de ses appelants a accès aux services définis).
+- [X] Vérifier que la liste des services à démarrer/arrêter/activer/désactiver n'est pas vide avant d'invoquer `systemctl`
+- [X] Diminuer la charge de parsing (`cleanup` reparse le fichier YAML, alors qu'au moins une partie de ses appelants a accès aux services définis).

@@ -78,11 +78,11 @@ pub fn unit_files_from_services(
     dry_run: bool,
 ) -> anyhow::Result<()> {
     let unit_files = render_unit_files(services, jinja_env)?;
-    write_unit_files(unit_files, dry_run)
+    write_unit_files(&unit_files, dry_run)
 }
 
 /// Utility function to write pre-rendered unit files to disk (unless `dry_run`)
-pub fn write_unit_files(unit_files: Vec<UnitFile>, dry_run: bool) -> anyhow::Result<()> {
+pub fn write_unit_files(unit_files: &[UnitFile], dry_run: bool) -> anyhow::Result<()> {
     if dry_run {
         eprintln!("Below is what the generated unit files would look like.");
         for unit_file in unit_files.iter() {
@@ -327,14 +327,7 @@ pub fn query_scompose_unit_states() -> anyhow::Result<HashMap<String, UnitState>
             .unwrap_or(unit)
             .to_string();
 
-        states.insert(
-            name,
-            UnitState {
-                load,
-                active,
-                sub,
-            },
-        );
+        states.insert(name, UnitState { load, active, sub });
     }
 
     Ok(states)

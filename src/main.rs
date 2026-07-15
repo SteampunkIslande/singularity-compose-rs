@@ -83,8 +83,8 @@ fn compose_build(build_command: BuildCommand, jinja_env: Environment) -> anyhow:
     // Detect services that are being overwritten, i.e. whose currently deployed unit file
     // differs from the freshly rendered one. Just like the `add` command, those must be
     // cleanly stopped, disabled and removed before their unit file is regenerated.
-    let mut overwritten: Vec<String> = Vec::new();
-    for unit_file in &unit_files {
+    let mut overwritten: Vec<UnitFile> = Vec::new();
+    for unit_file in unit_files.into_iter() {
         let is_overwritten = std::fs::read_to_string(&unit_file.file_name)
             .map(|existing| existing != unit_file.file_content)
             .unwrap_or(false);
@@ -118,10 +118,10 @@ fn compose_build(build_command: BuildCommand, jinja_env: Environment) -> anyhow:
                 eprintln!("Removed unit file: {}", unit_file.file_name.display());
             }
         }
-        overwritten.push(service_name);
+        overwritten.push(unit_file);
     }
 
-    utils::write_unit_files(unit_files, dry_run)?;
+    utils::write_unit_files(&overwritten, dry_run)?;
     // When building, we only generate new unit files from services. But some unit files might be absent from `/etc/singularity-compose-rs/compose.yaml`. These files must be cleaned up.
     cleanup(definition_file, dry_run)?;
     daemon_reload()?;
