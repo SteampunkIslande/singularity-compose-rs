@@ -406,6 +406,7 @@ fn compose_clean() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Entry point function when the CLI is used with no arguments. This is a service creation wizard that automatically defines and builds a unit file for a new service.
 fn service_creation_wizard(jinja_env: Environment) -> anyhow::Result<()> {
     // Prompts the user for informations about the service, then adds it to `/etc/singularity-compose-rs/compose.yaml`, then builds the unit file.
     println!(
@@ -429,11 +430,10 @@ fn service_creation_wizard(jinja_env: Environment) -> anyhow::Result<()> {
             .with_default("root")
             .with_validator(validate_group_name)
             .prompt_skippable()?;
-    // println!("You will now be prompted for bind volumes. First question will ask for a path on the host (either file or directory), second will ask for a path in the container (leave empty if you want it to be the same), and third will ask if you want this volume to be read-only.")
     let mut volumes: Vec<String> = Vec::new();
     loop {
         if inquire::Confirm::new(&format!(
-            "Do you want to add a volume mount ? You defined {} binds so far.",
+            "Do you want to add a volume mount ? You defined {} bind(s) so far.",
             volumes.len()
         ))
         .with_default(false)
@@ -468,7 +468,7 @@ fn service_creation_wizard(jinja_env: Environment) -> anyhow::Result<()> {
         }
     }
     println!(
-        "{} binds will be defined for service {}. Please note that these don't include default binds defined in `/etc/singularity/singularity.conf`",
+        "{} bind(s) will be defined for service `{}`. Please note that these don't include default binds defined in `/etc/singularity/singularity.conf`",
         volumes.len(),
         service_name
     );
@@ -526,7 +526,7 @@ fn service_creation_wizard(jinja_env: Environment) -> anyhow::Result<()> {
     yaml_serde::to_writer(file, &doc)?;
 
     println!(
-        "Successfully created new service `{0}`!\nYou can run `systemctl start scompose-{0} && systemctl enable scompose-{0}` to start and enable it",
+        "Successfully created new service `{0}`!\nYou can run `scompose up` to start and enable it",
         service_name_clone
     );
     Ok(())
