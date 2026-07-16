@@ -5,7 +5,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::bail;
+use anyhow::{Context, bail};
 use clap::Parser;
 use colored::{Color, Colorize};
 
@@ -30,6 +30,7 @@ struct UnitFile {
 
 const YAML_COMPOSE_DIR: &str = "/etc/singularity-compose-rs";
 const YAML_COMPOSE_FILE: &str = "/etc/singularity-compose-rs/compose.yaml";
+const YAML_COMPOSE_FILE_BACKUP: &str = "/etc/singularity-compose-rs/compose.yaml.bak";
 
 /// Entry point function to start services
 fn compose_up(up_command: UpCommand, _jinja_env: Environment) -> anyhow::Result<()> {
@@ -398,6 +399,23 @@ fn compose_remove(remove_command: RemoveCommand, _jinja_env: Environment) -> any
     Ok(())
 }
 
+fn make_backup() -> anyhow::Result<()> {
+    std::fs::copy(YAML_COMPOSE_FILE, YAML_COMPOSE_FILE_BACKUP).context(format!(
+        "Cannot save {} to {}",
+        YAML_COMPOSE_FILE, YAML_COMPOSE_FILE_BACKUP
+    ))?;
+    Ok(())
+}
+
+fn compose_cancel() -> anyhow::Result<()> {
+    std::fs::copy(YAML_COMPOSE_FILE_BACKUP, YAML_COMPOSE_FILE).context(format!(
+        "Cannot save {} to {}",
+        YAML_COMPOSE_FILE_BACKUP, YAML_COMPOSE_FILE
+    ))?;
+    std::fs::remove_file(YAML_COMPOSE_FILE_BACKUP)?;
+    Ok(())
+}
+
 /// Entry point function to remove any orphan service. This is somehow redundant with the `build` command, except this one only removes orphan service files without generating new ones.
 fn compose_clean() -> anyhow::Result<()> {
     let definition_file = Path::new(YAML_COMPOSE_FILE);
@@ -544,6 +562,13 @@ fn main() -> anyhow::Result<()> {
         if !is_root() {
             bail!("You must be root to create a service!");
         }
+        if let Err(e) = make_backup() {
+            eprintln!(
+                "Could not make backup: {}\nIt's OK, the original compose.yaml file has not been changed",
+                e
+            );
+            bail!("Exiting");
+        }
         service_creation_wizard(jinja_env)?;
         return Ok(());
     }
@@ -570,11 +595,25 @@ fn main() -> anyhow::Result<()> {
             if !is_root() {
                 bail!("You must be root to create new services!")
             }
+            if let Err(e) = make_backup() {
+                eprintln!(
+                    "Could not make backup: {}\nIt's OK, the original compose.yaml file has not been changed",
+                    e
+                );
+                bail!("Exiting");
+            }
             compose_build(build_command, jinja_env)?;
         }
         ComposeSubcommand::Add(add_command) => {
             if !is_root() {
                 bail!("You must be root to create new services!")
+            }
+            if let Err(e) = make_backup() {
+                eprintln!(
+                    "Could not make backup: {}\nIt's OK, the original compose.yaml file has not been changed",
+                    e
+                );
+                bail!("Exiting");
             }
             compose_add(add_command, jinja_env)?;
         }
@@ -589,6 +628,12 @@ fn main() -> anyhow::Result<()> {
                 bail!("You must be root to remove services!")
             }
             compose_clean()?;
+        }
+        ComposeSubcommand::Cancel => {
+            if !is_root() {
+                bail!("You must be root to restore compose configuration!");
+            }
+            compose_cancel()?;
         }
     }
     Ok(())

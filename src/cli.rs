@@ -13,6 +13,11 @@ pub enum ComposeSubcommand {
     /// This ensures `/etc/systemd/system` doesn't contain any `scompose-*` file that does not appear in `/etc/singularity-compose-rs/compose.yaml`.
     /// This shouldn't happen if you're using the proper method of calling `scompose remove <service name>` to remove a service, instead of directly editing the compose file.
     Clean,
+
+    /// Restores `/etc/singularity-compose-rs/compose.yaml` to its previous state.
+    ///
+    /// This allows you to recover `compose.yaml` as it was just before the last command that modified the file (i.e. build, add, and the wizard execution).
+    Cancel,
 }
 
 /// (Re)-builds all the unit files.
