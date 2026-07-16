@@ -105,9 +105,10 @@ pub fn write_unit_files(unit_files: &[UnitFile], dry_run: bool) -> anyhow::Resul
 /// Utility function to delete unit files that are no longer defined in `/etc/singularity-compose-rs`
 pub fn cleanup(definition_file: &Path, dry_run: bool) -> anyhow::Result<()> {
     let known: HashSet<String> = datatypes::Document::try_from_file_path(definition_file)
-        .context(
-            "Le fichier `/etc/singularitycompose-rs/compose.yaml` ne peut pas être interprété.",
-        )?
+        .context(format!(
+            "File `{}` cannot be parsed.",
+            definition_file.display()
+        ))?
         .services
         .iter()
         .map(|s| format!("scompose-{}.service", s.service_name))
@@ -317,9 +318,9 @@ pub fn query_scompose_unit_states() -> anyhow::Result<HashMap<String, UnitState>
         let Some(unit) = parts.next() else {
             continue;
         };
-        let load = parts.next().unwrap_or("").to_string();
-        let active = parts.next().unwrap_or("").to_string();
-        let sub = parts.next().unwrap_or("").to_string();
+        let load = parts.next().unwrap_or_default().to_string();
+        let active = parts.next().unwrap_or_default().to_string();
+        let sub = parts.next().unwrap_or_default().to_string();
 
         let name = unit
             .trim_end_matches(".service")

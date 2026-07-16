@@ -80,17 +80,11 @@ fn compose_build(build_command: BuildCommand, jinja_env: Environment) -> anyhow:
     let unit_files = utils::render_unit_files(&services, jinja_env)?;
     let dry_run = build_command.dry_run;
 
-    // Detect services that are being overwritten, i.e. whose currently deployed unit file
-    // differs from the freshly rendered one. Just like the `add` command, those must be
-    // cleanly stopped, disabled and removed before their unit file is regenerated.
-    let mut overwritten: Vec<UnitFile> = Vec::new();
+    // Detect services that are being overwritten (existing) vs new.
+    // Existing services with changed definitions must be stopped, disabled and removed.
+    // New services just need their unit files created.
+    let mut to_write: Vec<UnitFile> = Vec::new();
     for unit_file in unit_files.into_iter() {
-        let is_overwritten = std::fs::read_to_string(&unit_file.file_name)
-            .map(|existing| existing != unit_file.file_content)
-            .unwrap_or(false);
-        if !is_overwritten {
-            continue;
-        }
         let service_name = unit_file.file_name.file_name().map(|name| {
             name.to_string_lossy()
                 .trim_start_matches("scompose-")
@@ -100,36 +94,49 @@ fn compose_build(build_command: BuildCommand, jinja_env: Environment) -> anyhow:
         let Some(service_name) = service_name else {
             continue;
         };
-        eprintln!(
-            "Service `{}` definition changed, regenerating its unit file.",
-            service_name
-        );
         let unit_file_name = format!("scompose-{}.service", service_name);
-        if dry_run {
-            eprintln!(
-                "Would stop, disable and remove overwritten unit file `{}`",
-                unit_file_name
-            );
-        } else {
-            systemctl_run(&[&unit_file_name], SystemdCommand::Stop, true, false)?;
-            systemctl_run(&[&unit_file_name], SystemdCommand::Disable, true, false)?;
-            if unit_file.file_name.exists() {
-                std::fs::remove_file(&unit_file.file_name)?;
-                eprintln!("Removed unit file: {}", unit_file.file_name.display());
+
+        if unit_file.file_name.exists() {
+            let existing = std::fs::read_to_string(&unit_file.file_name).unwrap_or_default();
+            if existing == unit_file.file_content {
+                // No change, skip
+                continue;
             }
+            eprintln!(
+                "Service `{}` definition changed, regenerating its unit file.",
+                service_name
+            );
+            if dry_run {
+                eprintln!(
+                    "Would stop, disable and remove overwritten unit file `{}`. Then write the updated version.",
+                    unit_file_name
+                );
+            } else {
+                systemctl_run(&[&unit_file_name], SystemdCommand::Stop, true, false)?;
+                systemctl_run(&[&unit_file_name], SystemdCommand::Disable, true, false)?;
+                if unit_file.file_name.exists() {
+                    std::fs::remove_file(&unit_file.file_name)?;
+                    eprintln!("Removed unit file: {}", unit_file.file_name.display());
+                }
+            }
+        } else {
+            eprintln!(
+                "Service `{}` is new, generating its unit file.",
+                service_name
+            );
         }
-        overwritten.push(unit_file);
+        to_write.push(unit_file);
     }
 
-    utils::write_unit_files(&overwritten, dry_run)?;
+    utils::write_unit_files(&to_write, dry_run)?;
     // When building, we only generate new unit files from services. But some unit files might be absent from `/etc/singularity-compose-rs/compose.yaml`. These files must be cleaned up.
     cleanup(definition_file, dry_run)?;
     daemon_reload()?;
 
-    if !overwritten.is_empty() {
+    if !to_write.is_empty() {
         eprintln!(
-            "{} service(s) were stopped, disabled and overwritten. You may want to run `scompose up` to restart them.",
-            overwritten.len()
+            "{} service(s) had unit files generated. You may want to run `scompose up` to start them.",
+            to_write.len()
         );
     }
 
@@ -434,15 +441,15 @@ fn service_creation_wizard(jinja_env: Environment) -> anyhow::Result<()> {
         .is_some_and(|b| b)
         {
             let host_p =
-                inquire::Text::new("Please enter a path on the host (either file or directory)")
+                inquire::Text::new("Please enter a path on the host (either file or directory):")
                     .with_autocomplete(FilePathCompleter::default())
                     .with_validator(validate_path)
                     .prompt()?;
             let container_p = {
-                let p = inquire::Text::new(&format!("Please enter a path inside the container that `{}` on the host should bind to (leave empty or press ESC if you want it to be the same)",host_p)).prompt_skippable()?;
+                let p = inquire::Text::new(&format!("Please enter a path inside the container that `{}` on the host should bind to (leave empty or press ESC if you want it to be the same):",host_p)).prompt_skippable()?;
                 match p {
                     Some(p) if !p.is_empty() => Some(p),
-                    Some(_) => None,
+                    Some(_) => None, // If p is empty, set to None
                     None => None,
                 }
             };
@@ -459,7 +466,6 @@ fn service_creation_wizard(jinja_env: Environment) -> anyhow::Result<()> {
         } else {
             break;
         }
-        inquire::Text::new("Please choose a ").prompt()?;
     }
     println!(
         "{} binds will be defined for service {}. Please note that these don't include default binds defined in `/etc/singularity/singularity.conf`",
