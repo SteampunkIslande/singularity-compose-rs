@@ -16,7 +16,7 @@ pub enum ComposeSubcommand {
 
     /// Restores `/etc/singularity-compose-rs/compose.yaml` to its previous state.
     ///
-    /// This allows you to recover `compose.yaml` as it was just before the last command that modified the file (i.e. build, add, and the wizard execution).
+    /// This allows you to recover `compose.yaml` as it was just before the last command that modified the file (i.e. build, add, remove, and the wizard execution).
     Cancel,
 }
 

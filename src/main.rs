@@ -621,6 +621,13 @@ fn main() -> anyhow::Result<()> {
             if !is_root() {
                 bail!("You must be root to remove services!")
             }
+            if let Err(e) = make_backup() {
+                eprintln!(
+                    "Could not make backup: {}\nIt's OK, the original compose.yaml file has not been changed",
+                    e
+                );
+                bail!("Exiting");
+            }
             compose_remove(remove_command, jinja_env)?;
         }
         ComposeSubcommand::Clean => {
