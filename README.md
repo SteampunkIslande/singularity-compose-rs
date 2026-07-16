@@ -1,12 +1,12 @@
-# singularity-compose-rs
+# The binary
 
-`singularity-compose-rs` is a simple CLI tool designed to bring some of the benefits of using `docker-compose` to Singularity.
+This project is named `singularity-compose-rs`, and the resulting binary is named `scompose`. It's a simple CLI tool designed to bring some of the benefits of using `docker-compose` to Singularity.
 
 The goal is to:
 - define singularity instances as services
 - make sure all these instances are running together at startup
 
-The idea is to have a single file where you define all your singularity-based services, and have singularity-compose-rs update the service files for you.
+The idea is to have a single file where you define all your singularity-based services, and have `scompose` update the service files for you.
 To help even further with managing arbitrarily complex service setups, this tool also allows one to assign hierarchical groups to each individual service definition.
 
 ## Requirements
@@ -37,10 +37,10 @@ If `/usr/bin/singularity` doesn't exist (you've installed `singularity` at anoth
 Please note that if referring to another service managed by `singularity-compose-rs`, you have to prefix it with `scompose-`. This applies to fields `requires` and `after`.
 See the example [below](#example-compose-file).
 
-### Service Groups
+## Service Groups
 
 Service groups support a hierarchy expressed with `.`.
-There are only used to refer to service definitions within the master `compose.yaml` file (in `/etc/singularity-compose-rs`) and in this CLI. They are completely ignored by systemd.
+They are only used to refer to service definitions within the master `compose.yaml` file (in `/etc/singularity-compose-rs`) and in this CLI. They are completely ignored by systemd.
 
 ## Install
 
@@ -54,6 +54,8 @@ cd singularity-compose-rs
 cargo install --path .
 ```
 
+This will install `singularity-compose-rs` (the crate), with a single binary being `scompose`.
+
 ### By copying the binary
 
 ```bash
@@ -61,9 +63,7 @@ git clone git@github.com:SteampunkIslande/singularity-compose-rs.git
 cd singularity-compose-rs
 cargo build --release
 # Or copy it to wherever you want in your path
-sudo cp target/x86_64-unknown-linux-musl/release/singularity-compose-rs /usr/bin
-# You can even define an alias
-sudo ln -s /usr/bin/singularity-compose-rs /usr/bin/scompose
+sudo cp target/x86_64-unknown-linux-musl/release/scompose /usr/bin
 ```
 
 The resulting binary is 100% standalone, you can just copy it and it will work on any linux computer with `Linux kernel >=2.6.39` (so basically any linux distribution will do).
@@ -71,7 +71,7 @@ The resulting binary is 100% standalone, you can just copy it and it will work o
 
 ## CLI usage
 
-`singularity-compose-rs` is just a unit files builder. It will write all the appropriate unit files in order for your singularity instances to be defined as services. It then allows you to bring them up all at once, take them down all at once, or let you choose which groups you'd like to start/stop.
+`scompose` is just a unit files builder. It will write all the appropriate unit files in order for your singularity instances to be defined as services. It then allows you to bring them up all at once, take them down all at once, or let you choose which groups you'd like to start/stop.
 
 The compose file is read from `/etc/singularity-compose-rs/compose.yaml` and this cannot be changed.
 
@@ -263,7 +263,7 @@ This very basic example lets you compose a simple webapp setup with [`nginx`](ht
 
 ## How It Works
 
-For each service defined in the compose file, `singularity-compose-rs` generates a systemd unit file at `/etc/systemd/system/scompose-<service_name>.service`. The generated unit file uses a forking service type and starts the Singularity instance using:
+For each service defined in the compose file, `scompose` generates a systemd unit file at `/etc/systemd/system/scompose-<service_name>.service`. The generated unit file uses a forking service type and starts the Singularity instance using:
 
 ```bash
 /usr/bin/singularity instance start --pid-file <pidfile> <binds> <image> <service_name>
@@ -276,7 +276,6 @@ When `build` is run, the tool validates the compose file, checks that the Singul
 
 # Tutorial
 
-> This tutorial assumes `singularity-compose-rs` is aliased to `scompose`.
 
 ## Lifecycle
 
@@ -342,3 +341,13 @@ The goal is to keep things simple and organized. On a given system, there should
 ## Why are all the generated unit files prefixed with `scompose-`?
 
 So one can easily recognize where they come from, and either delete them if needed using `rm /etc/systemd/system/scompose-*`, or list them using `ls /etc/systemd/system/scompose*`, or stop all singularity-based services with `systemctl stop 'scompose-*'` (don't forget the single quotes).
+
+Here is a table to summarize in which context you use the prefixed name of a service and when you use its bare name:
+
+| Identifier                          | Context                                           |
+| ----------------------------------- | ------------------------------------------------- |
+| `scompose-{name}`                   | `systemctl [status\|start\|stop] scompose-{name}` |
+| `{name}`                            | `scompose remove {name}`                          |
+| `requires: scompose-{name}.service` | In `compose.yaml`                                 |
+
+Basically, if you have a service with name `name`, it will only be known as `scompose-{name}.service`.
